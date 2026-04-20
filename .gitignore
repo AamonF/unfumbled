@@ -30,7 +30,8 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (keep real URLs / keys out of git)
+.env
 .env*.local
 
 # typescript
@@ -39,3 +40,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Supabase CLI local state
+supabase/.temp/

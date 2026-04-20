@@ -1,0 +1,32 @@
+# Supabase CLI configuration.
+#
+# The only non-default setting we need for MVP is opting the `analyze` Edge
+# Function out of the gateway's JWT verification. The Expo app calls
+# `/functions/v1/analyze` with no Supabase session (no login required in MVP),
+# so a JWT-gated function would 401 every request.
+#
+# Cost / abuse notes — read before flipping this back on or off:
+#   • `analyze` hits paid OpenAI usage. Making it publicly callable means the
+#     endpoint is a potential cost-abuse vector. The input schema is strict
+#     (20 000-char hard cap, unknown keys rejected), the OpenAI key stays in
+#     Edge runtime secrets, and upstream errors are never echoed to clients.
+#   • Rate limiting + anti-abuse is delegated to Supabase's per-function
+#     request limits for now. Before a real launch, add one or more of:
+#       – Turnstile / hCaptcha on the client,
+#       – per-IP rate limiting inside the function,
+#       – signed short-lived tokens issued by a lightweight auth endpoint,
+#       – or re-enable `verify_jwt` once the Expo client ships real auth.
+#
+# This file is declarative on purpose: CI and `supabase functions deploy`
+# both read it, so nobody has to remember `--no-verify-jwt` at the CLI.
+
+project_id = "unfumbled"
+
+[functions.analyze]
+verify_jwt = false
+
+[functions.parse-screenshots]
+verify_jwt = false
+
+[functions.generateReply]
+verify_jwt = false
