@@ -188,7 +188,7 @@ export function parseAnalysisResult(data: unknown): AnalysisResult {
 /** Non-throwing parser. Prefer at untrusted boundaries (network, storage). */
 export function safeParseAnalysisResult(
   data: unknown,
-): z.SafeParseReturnType<unknown, AnalysisResult> {
+): ReturnType<typeof AnalysisResultSchema.safeParse> {
   return AnalysisResultSchema.safeParse(data);
 }
 

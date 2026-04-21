@@ -10,7 +10,13 @@
  */
 
 import type { ImagePickerAsset } from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+// expo-file-system v19 moved the string-read API (`readAsStringAsync`,
+// `EncodingType`) under `/legacy`. The new `File`/`Paths` class API does
+// not expose a one-shot base64 read, so the legacy module is still the
+// recommended path for picker-fallback image → base64 conversion. Without
+// this subpath, `FileSystem.EncodingType` is undefined at runtime and the
+// fallback branch throws a TypeError during screenshot uploads.
+import * as FileSystem from 'expo-file-system/legacy';
 import type { ParsedConversation } from '@/types';
 
 // ─── Error type ───────────────────────────────────────────────────────────────

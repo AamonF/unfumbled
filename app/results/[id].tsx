@@ -505,7 +505,7 @@ function MidPaywall({ onPress }: { onPress: () => void }) {
       <View style={mw.featureRow}>
         {[
           { icon: 'chatbubbles-outline' as const, label: 'Reply Suite' },
-          { icon: 'brain-outline' as const,       label: 'Psychology' },
+          { icon: 'bulb-outline' as const,        label: 'Psychology' },
           { icon: 'analytics-outline' as const,   label: 'Patterns' },
         ].map((f) => (
           <View key={f.label} style={mw.featureChip}>

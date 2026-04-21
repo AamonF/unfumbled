@@ -1,11 +1,25 @@
 import {
   INTEREST_SCORE_MIN,
   INTEREST_SCORE_MAX,
-  POWER_BALANCE_MIN,
-  POWER_BALANCE_MAX,
-  type ReplyTone,
 } from '@/types';
 import type { ReplyStyle, ToneIntensity, AnalysisDepth } from '@/lib/settings';
+
+// ─── Local prompt-only constants ─────────────────────────────────────────────
+// These live here rather than in `@/types` because the runtime analysis
+// schema expresses power_balance as a string enum (User Chasing / Even / …),
+// while the prompt needs a numeric range to instruct the model.
+// ReplyTone is similarly prompt-only — the server validates the final shape.
+const POWER_BALANCE_MIN = -1;
+const POWER_BALANCE_MAX = 1;
+
+type ReplyTone =
+  | 'warm'
+  | 'playful'
+  | 'direct'
+  | 'curious'
+  | 'confident'
+  | 'casual'
+  | 'empathetic';
 
 const VALID_TONES: ReplyTone[] = [
   'warm',
