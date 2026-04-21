@@ -50,8 +50,11 @@
         "EXPO_PUBLIC_ENABLE_DEV_ADMIN": "false"
       }
     }
-  },
   "submit": {
-    "production": {}
+  "production": {
+    "ios": {
+      "ascAppId": "6762696868"
+    }
   }
+}
 }
