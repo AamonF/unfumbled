@@ -63,13 +63,13 @@ const FREE_LIMITS: string[] = [
 
 // ─── Billing toggle ────────────────────────────────────────────────────────────
 
-type BillingPeriod = 'monthly' | 'annual';
+type BillingPeriod = 'weekly' | 'monthly';
 
-const PRICE_MONTHLY = 9.99;
-const PRICE_ANNUAL_PER_MONTH = 6.99;
-const PRICE_ANNUAL_TOTAL = (PRICE_ANNUAL_PER_MONTH * 12).toFixed(0);
-const ANNUAL_SAVINGS_PCT = Math.round(
-  (1 - PRICE_ANNUAL_PER_MONTH / PRICE_MONTHLY) * 100,
+const PRICE_WEEKLY = 6.99;
+const PRICE_MONTHLY = 14.99;
+// Monthly vs weekly annualized: (1 - (14.99×12) / (6.99×52)) ≈ 51%
+const MONTHLY_SAVINGS_PCT = Math.round(
+  (1 - (PRICE_MONTHLY * 12) / (PRICE_WEEKLY * 52)) * 100,
 );
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -82,24 +82,29 @@ export default function PricingScreen() {
   const { packages, purchasePackage, restorePurchases } = useSubscription();
   const { isPro } = useEntitlement();
 
-  const [billing, setBilling] = useState<BillingPeriod>('annual');
+  const [billing, setBilling] = useState<BillingPeriod>('monthly');
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
 
+  const weeklyPkg = packages.find(
+    (p) => p.packageType === 'WEEKLY' || p.identifier === '$rc_weekly',
+  );
   const monthlyPkg = packages.find(
     (p) => p.packageType === 'MONTHLY' || p.identifier === '$rc_monthly',
   );
+  const selectedPkg = billing === 'weekly' ? weeklyPkg : monthlyPkg;
 
-  const price = billing === 'annual' ? PRICE_ANNUAL_PER_MONTH : PRICE_MONTHLY;
+  const price = billing === 'weekly' ? PRICE_WEEKLY : PRICE_MONTHLY;
+  const pricePer = billing === 'weekly' ? '/week' : '/month';
 
   async function handlePurchase() {
-    if (!monthlyPkg) {
+    if (!selectedPkg) {
       Alert.alert('Unavailable', 'Subscription is not available right now. Try again later.');
       return;
     }
     setPurchasing(true);
     try {
-      const success = await purchasePackage(monthlyPkg);
+      const success = await purchasePackage(selectedPkg);
       if (success) router.back();
     } catch (err: any) {
       Alert.alert('Purchase failed', err.message ?? 'Something went wrong.');
@@ -190,18 +195,13 @@ export default function PricingScreen() {
                   <Text style={styles.planLabel}>PRO</Text>
                   <View style={styles.priceRow}>
                     <Text style={styles.priceAmount}>${price.toFixed(2)}</Text>
-                    <Text style={styles.pricePer}>/month</Text>
+                    <Text style={styles.pricePer}>{pricePer}</Text>
                   </View>
-                  {billing === 'annual' && (
-                    <Animated.Text entering={FadeIn.duration(200)} style={styles.priceSub}>
-                      Billed ${PRICE_ANNUAL_TOTAL}/year
-                    </Animated.Text>
-                  )}
                 </View>
 
-                {billing === 'annual' && (
+                {billing === 'monthly' && (
                   <Animated.View entering={FadeIn.duration(220)} style={styles.savingsBadge}>
-                    <Text style={styles.savingsText}>Save {ANNUAL_SAVINGS_PCT}%</Text>
+                    <Text style={styles.savingsText}>Save {MONTHLY_SAVINGS_PCT}%</Text>
                   </Animated.View>
                 )}
               </View>
@@ -231,9 +231,9 @@ export default function PricingScreen() {
                 ) : (
                   <AppButton
                     title={
-                      billing === 'annual'
-                        ? `Start Pro — $${PRICE_ANNUAL_PER_MONTH}/mo`
-                        : `Start Pro — $${PRICE_MONTHLY}/mo`
+                      billing === 'weekly'
+                        ? `Start Pro — $${PRICE_WEEKLY}/week`
+                        : `Start Pro — $${PRICE_MONTHLY}/month`
                     }
                     variant="primary"
                     size="lg"
@@ -244,8 +244,8 @@ export default function PricingScreen() {
                   />
                 )}
                 <Text style={styles.ctaCaption}>
-                  {billing === 'annual'
-                    ? `$${PRICE_ANNUAL_TOTAL} charged annually · Cancel any time`
+                  {billing === 'weekly'
+                    ? 'Billed weekly · Cancel any time'
                     : 'Billed monthly · Cancel any time'}
                 </Text>
               </Animated.View>
@@ -317,15 +317,15 @@ function BillingToggle({
   return (
     <View style={toggleStyles.wrap}>
       <ToggleOption
-        label="Monthly"
-        active={value === 'monthly'}
-        onPress={() => onChange('monthly')}
+        label="Weekly"
+        active={value === 'weekly'}
+        onPress={() => onChange('weekly')}
       />
       <ToggleOption
-        label="Annual"
-        badge={`Save ${ANNUAL_SAVINGS_PCT}%`}
-        active={value === 'annual'}
-        onPress={() => onChange('annual')}
+        label="Monthly"
+        badge={`Save ${MONTHLY_SAVINGS_PCT}%`}
+        active={value === 'monthly'}
+        onPress={() => onChange('monthly')}
       />
     </View>
   );
