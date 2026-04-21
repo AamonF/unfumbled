@@ -24,6 +24,7 @@ import {
   getCustomerInfo,
   ENTITLEMENT_ID,
 } from '@/lib/revenueCat';
+import { trackEvent } from '@/lib/analytics';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,7 +135,14 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       try {
         const info = await rcPurchasePackage(pkg);
         updateFromCustomerInfo(info);
-        return customerHasPro(info);
+        const hasPro = customerHasPro(info);
+        if (hasPro) {
+          void trackEvent('subscription_started', {
+            product_id: pkg.product?.identifier ?? null,
+            package_type: pkg.packageType ?? null,
+          });
+        }
+        return hasPro;
       } catch (err: any) {
         if (err.userCancelled) return false;
         throw err;

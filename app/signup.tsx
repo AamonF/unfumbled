@@ -1,18 +1,18 @@
-import { useState, useRef } from 'react';
+import { AppButton, AppScreen, Typography } from '@/components';
+import { BorderRadius, Colors, FontSize, MIN_TOUCH_TARGET, Spacing, TextStyles } from '@/constants';
+import { useAuth } from '@/providers/AuthProvider';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useRef, useState } from 'react';
 import {
-  TextInput,
-  StyleSheet,
-  View,
-  Text,
-  Pressable,
-  Keyboard,
+    Keyboard,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { AppScreen, AppButton, Typography } from '@/components';
-import { Colors, Spacing, FontSize, BorderRadius, TextStyles, MIN_TOUCH_TARGET } from '@/constants';
-import { useAuth } from '@/providers/AuthProvider';
 
 // Keep in sync with the CHECK constraint on `public.profiles.username_format_check`.
 const USERNAME_REGEX = /^[A-Za-z0-9_]{3,20}$/;

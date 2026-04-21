@@ -9,6 +9,14 @@ import {
 } from 'react';
 import { useAuth } from '@/providers/AuthProvider';
 import { useSubscription } from '@/providers/RevenueCatProvider';
+import { isAdminUser } from '@/lib/adminAccess';
+import {
+  DEFAULT_ADMIN_TESTING_OVERRIDES,
+  loadAdminTestingOverrides,
+  persistAdminTestingOverrides,
+  type AdminEntitlementMode,
+  type AdminTestingOverrides,
+} from '@/lib/adminTesting';
 // [dev-admin] Remove this import block when stripping the dev-admin subsystem.
 import {
   DEFAULT_DEV_ADMIN_OVERRIDES,
@@ -19,6 +27,8 @@ import {
 } from '@/lib/devAdmin';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { isRevenueCatConfigured } from '@/lib/revenueCat';
+
+export type { AdminEntitlementMode } from '@/lib/adminTesting';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +74,15 @@ export interface EntitlementState {
   clearDevOverrides: () => void;
   /** Sign out + clear any dev-admin session and overrides. */
   clearAdminSession: () => Promise<void>;
+
+  /** Production admin: persisted testing overrides (Pro / free simulation). */
+  adminTesting: AdminTestingOverrides;
+  setAdminProOverride: (value: boolean | null) => void;
+  setAdminSimulateFreeUser: (value: boolean) => void;
+  setAdminUseRevenueCatOnly: (value: boolean) => void;
+  clearAdminTestingOverrides: () => void;
+  /** Single update for Pro mode picker (avoids stale batched state). */
+  setAdminEntitlementMode: (mode: AdminEntitlementMode) => void;
 }
 
 const EntitlementContext = createContext<EntitlementState | null>(null);
@@ -75,6 +94,18 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
   const [overrides, setOverrides] = useState<DevAdminOverrides>(
     DEFAULT_DEV_ADMIN_OVERRIDES,
   );
+
+  const [adminTesting, setAdminTesting] = useState<AdminTestingOverrides>(
+    DEFAULT_ADMIN_TESTING_OVERRIDES,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    loadAdminTestingOverrides().then((loaded) => {
+      if (!cancelled) setAdminTesting(loaded);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // [dev-admin] Restore persisted dev overrides on mount.
   // Effect body is dead-code-eliminated in release builds.
@@ -124,6 +155,78 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     await signOut();
   }, [clearDevOverrides, signOut]);
 
+  const updateAdminTesting = useCallback((next: AdminTestingOverrides) => {
+    setAdminTesting(next);
+    void persistAdminTestingOverrides(next);
+  }, []);
+
+  const setAdminEntitlementMode = useCallback(
+    (mode: AdminEntitlementMode) => {
+      if (!user || !isAdminUser(user)) return;
+      setAdminTesting((prev) => {
+        let next: AdminTestingOverrides;
+        switch (mode) {
+          case 'auto':
+            next = { ...prev, useRevenueCatOnly: false, proOverride: null };
+            break;
+          case 'revenuecat':
+            next = { ...prev, useRevenueCatOnly: true, proOverride: null };
+            break;
+          case 'force_on':
+            next = { ...prev, useRevenueCatOnly: false, proOverride: true };
+            break;
+          case 'force_off':
+            next = { ...prev, useRevenueCatOnly: false, proOverride: false };
+            break;
+        }
+        void persistAdminTestingOverrides(next);
+        return next;
+      });
+    },
+    [user],
+  );
+
+  const setAdminProOverride = useCallback(
+    (value: boolean | null) => {
+      if (!user || !isAdminUser(user)) return;
+      setAdminTesting((prev) => {
+        const next = { ...prev, proOverride: value };
+        void persistAdminTestingOverrides(next);
+        return next;
+      });
+    },
+    [user],
+  );
+
+  const setAdminSimulateFreeUser = useCallback(
+    (value: boolean) => {
+      if (!user || !isAdminUser(user)) return;
+      setAdminTesting((prev) => {
+        const next = { ...prev, simulateFreeUser: value };
+        void persistAdminTestingOverrides(next);
+        return next;
+      });
+    },
+    [user],
+  );
+
+  const setAdminUseRevenueCatOnly = useCallback(
+    (value: boolean) => {
+      if (!user || !isAdminUser(user)) return;
+      setAdminTesting((prev) => {
+        const next = { ...prev, useRevenueCatOnly: value };
+        void persistAdminTestingOverrides(next);
+        return next;
+      });
+    },
+    [user],
+  );
+
+  const clearAdminTestingOverridesFn = useCallback(() => {
+    if (!user || !isAdminUser(user)) return;
+    updateAdminTesting(DEFAULT_ADMIN_TESTING_OVERRIDES);
+  }, [user, updateAdminTesting]);
+
   // ─── Effective entitlement resolution ────────────────────────────────────
   //
   //   real Pro state → (dev-admin overrides, dev builds only)
@@ -140,7 +243,21 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
     let effectivePro = realIsPro;
 
-    if (DEV_ADMIN_ENABLED) {
+    const isProdAdmin = Boolean(user) && isAdminUser(user) && !isDevAdmin;
+
+    if (isProdAdmin) {
+      if (adminTesting.simulateFreeUser) {
+        effectivePro = false;
+      } else if (adminTesting.useRevenueCatOnly) {
+        effectivePro = realIsPro;
+      } else if (adminTesting.proOverride === true) {
+        effectivePro = true;
+      } else if (adminTesting.proOverride === false) {
+        effectivePro = false;
+      } else {
+        effectivePro = true;
+      }
+    } else if (DEV_ADMIN_ENABLED) {
       // [dev-admin] Dev admin is implicitly Pro by default, subject to the
       // Pro-override and simulate-free-user toggles below.
       if (isDevAdmin) effectivePro = true;
@@ -152,7 +269,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     }
 
     return { isPro: effectivePro, isAuthenticated: authenticated };
-  }, [user, isDevAdmin, realIsPro, overrides]);
+  }, [user, isDevAdmin, realIsPro, overrides, adminTesting]);
 
   const flags = useMemo<FeatureFlags>(
     () => ({
@@ -175,6 +292,12 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       setSimulateFreeUser,
       clearDevOverrides,
       clearAdminSession,
+      adminTesting,
+      setAdminProOverride,
+      setAdminSimulateFreeUser,
+      setAdminUseRevenueCatOnly,
+      clearAdminTestingOverrides: clearAdminTestingOverridesFn,
+      setAdminEntitlementMode,
     }),
     [
       isAuthenticated,
@@ -186,6 +309,12 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       setSimulateFreeUser,
       clearDevOverrides,
       clearAdminSession,
+      adminTesting,
+      setAdminProOverride,
+      setAdminSimulateFreeUser,
+      setAdminUseRevenueCatOnly,
+      clearAdminTestingOverridesFn,
+      setAdminEntitlementMode,
     ],
   );
 

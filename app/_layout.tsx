@@ -88,6 +88,7 @@ export default function RootLayout() {
                       headerShadowVisible: false,
                     }}
                   />
+                  <Stack.Screen name="admin" />
                   <Stack.Screen name="+not-found" />
                 </Stack>
                 <GlobalPaywall />

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { trackEvent } from '@/lib/analytics';
 // [dev-admin] Remove this import block when stripping the dev-admin subsystem.
 import {
   DEV_ADMIN_ENABLED,
@@ -190,6 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       assertConfigured();
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      void trackEvent('login');
     },
     [signInAsDevAdmin],
   );
@@ -210,6 +212,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
 
       const confirmEmail = !data.session;
+      // Only fires when Supabase returns an active session (email confirmation
+      // disabled). When confirmation is required we'll capture `login` on the
+      // user's first sign-in instead — the RLS policy requires an auth.uid().
+      if (!confirmEmail) void trackEvent('sign_up');
       return { confirmEmail };
     },
     [],

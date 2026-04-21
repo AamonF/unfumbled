@@ -24,6 +24,7 @@ import type { AnalysisResult, GhostRisk, PowerBalance } from '@/types';
 import { analysisStore } from '@/lib/analysisStore';
 import { savedAnalysisStore } from '@/lib/savedAnalysisStore';
 import { generateReply, type GeneratedReplies } from '@/lib/api';
+import { trackEvent } from '@/lib/analytics';
 import { useEntitlement } from '@/providers/EntitlementProvider';
 
 // ─── Demo fallback ────────────────────────────────────────────────────────────
@@ -727,6 +728,7 @@ export default function ResultsScreen() {
     try {
       if (next) {
         await savedAnalysisStore.save(id, result, conversationText);
+        void trackEvent('conversation_saved');
       } else {
         await savedAnalysisStore.remove(id);
       }
@@ -746,6 +748,7 @@ export default function ResultsScreen() {
       setReplies(null);
       const result = await generateReply(conversationText, lastMessage);
       setReplies(result);
+      void trackEvent('reply_generated');
     } catch (err) {
       setGenerateReplyError('Failed to generate replies. Please try again.');
       console.error('[GenerateReply]', err);

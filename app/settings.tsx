@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,8 +20,13 @@ import { SettingSection } from '@/components/ui/SettingSection';
 import { SettingRow } from '@/components/ui/SettingRow';
 import { PickerRow } from '@/components/ui/PickerRow';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-// [dev-admin] Remove this import when stripping the dev-admin subsystem.
-import { DEV_ADMIN_ENABLED } from '@/lib/devAdmin';
+import { isAdminUser } from '@/lib/adminAccess';
+import {
+  ADMIN_ENTITLEMENT_PICKER_OPTIONS,
+  adminEntitlementModeFromOverrides,
+  modeFromPickerOption,
+  pickerOptionFromMode,
+} from '@/lib/adminTesting';
 import {
   REPLY_STYLES,
   ANALYSIS_DEPTHS,
@@ -64,25 +70,18 @@ export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
-  const { isPro: realIsPro, restorePurchases } = useSubscription();
+  const { restorePurchases } = useSubscription();
   const [restoring, setRestoring] = useState(false);
   const {
     isPro,
-    isDevAdmin,
-    isAuthenticated,
-    devProOverride,
-    simulateFreeUser,
-    flags,
-    setDevProOverride,
-    setSimulateFreeUser,
-    clearDevOverrides,
-    clearAdminSession,
+    adminTesting,
+    setAdminEntitlementMode,
+    setAdminSimulateFreeUser,
+    clearAdminTestingOverrides,
   } = useEntitlement();
   const { settings, updateSetting } = useSettings();
 
-  // [dev-admin] Compile-time-foldable: the entire debug section is
-  // dead-code-eliminated from release bundles via this gate.
-  const devAdminVisible = DEV_ADMIN_ENABLED;
+  const showAdminTools = isAdminUser(user);
   const [signingOut, setSigningOut] = useState(false);
 
   async function handleSignOut() {
@@ -268,6 +267,69 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── ADMIN TOOLS ─────────────────────────────────────────────────── */}
+        {/* Only rendered for the admin email — non-admins never see the entry. */}
+        {showAdminTools && (
+          <SettingSection title="ADMIN" style={styles.section}>
+            <SettingRow
+              label="Analytics dashboard"
+              description="Internal event metrics and funnel charts."
+              onPress={() => router.push('/admin/analytics')}
+              chevron
+              icon={
+                <Ionicons
+                  name="stats-chart-outline"
+                  size={18}
+                  color={Colors.accent}
+                />
+              }
+            />
+            <PickerRow
+              label="Pro entitlement"
+              description="Auto grants premium without a store subscription. RevenueCat follows your real subscription."
+              options={ADMIN_ENTITLEMENT_PICKER_OPTIONS}
+              value={pickerOptionFromMode(
+                adminEntitlementModeFromOverrides(adminTesting),
+              )}
+              onChange={(opt) =>
+                setAdminEntitlementMode(modeFromPickerOption(opt))
+              }
+            />
+            <ToggleRow
+              label="Simulate free user"
+              description="Full free-tier experience (quotas, paywall). Overrides Pro entitlement above."
+              value={adminTesting.simulateFreeUser}
+              onValueChange={setAdminSimulateFreeUser}
+              tint={Colors.destructive}
+            />
+            <SettingRow
+              label="Reset testing overrides"
+              description="Restore Auto premium and turn off free simulation."
+              onPress={() => {
+                Alert.alert(
+                  'Reset overrides?',
+                  'Pro testing options and simulate-free will return to defaults.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Reset',
+                      onPress: () => clearAdminTestingOverrides(),
+                    },
+                  ],
+                );
+              }}
+              separator={false}
+              icon={
+                <Ionicons
+                  name="refresh-outline"
+                  size={18}
+                  color={Colors.textSecondary}
+                />
+              }
+            />
+          </SettingSection>
+        )}
+
         {/* ── 5. ACCOUNT ──────────────────────────────────────────────────── */}
         <SettingSection title="ACCOUNT" style={styles.section}>
           <SettingRow
@@ -332,142 +394,58 @@ export default function SettingsScreen() {
           />
         </SettingSection>
 
-        {/* ── 7. DEVELOPER / DEBUG (dev-only) ─────────────────────────────── */}
-        {/* [dev-admin] Dead-code-eliminated in release bundles. TODO(pre-release): delete this block. */}
-        {devAdminVisible && (
-          <View style={styles.section}>
-            <View style={styles.debugHeaderRow}>
-              <Text style={styles.sectionHeaderLabel}>DEVELOPER</Text>
-              <View style={styles.debugBadge}>
-                <Ionicons name="construct-outline" size={10} color={Colors.destructive} />
-                <Text style={styles.debugBadgeText}>DEV ONLY</Text>
-              </View>
-            </View>
-
-            <View style={styles.debugCard}>
-              <DebugFactRow
-                label="Authenticated"
-                value={isAuthenticated}
-              />
-              <DebugFactRow
-                label="Pro entitlement (effective)"
-                value={isPro}
-              />
-              <DebugFactRow
-                label="Pro entitlement (RevenueCat)"
-                value={realIsPro}
-              />
-              <DebugFactRow
-                label="Dev-admin session"
-                value={isDevAdmin}
-              />
-              <DebugFactRow
-                label="Username"
-                value={user?.username ? `@${user.username}` : '—'}
-                isBool={false}
-              />
-              <DebugFactRow
-                label="User email"
-                value={user?.email ?? '—'}
-                isBool={false}
-              />
-              <DebugFactRow
-                label="User ID"
-                value={user?.id ?? '—'}
-                isBool={false}
-                separator={false}
-              />
-            </View>
-
-            <Text style={styles.debugSubheader}>FEATURE FLAGS</Text>
-            <View style={styles.debugCard}>
-              <DebugFactRow
-                label="EXPO_PUBLIC_ENABLE_DEV_ADMIN"
-                value={flags.devAdminEnabled}
-              />
-              <DebugFactRow
-                label="Supabase configured"
-                value={flags.supabaseConfigured}
-              />
-              <DebugFactRow
-                label="RevenueCat configured"
-                value={flags.revenueCatConfigured}
-                separator={false}
-              />
-            </View>
-
-            <Text style={styles.debugSubheader}>OVERRIDES</Text>
-            <View style={styles.debugCard}>
-              <ToggleRow
-                label="Force Pro entitlement"
-                description="Grant Pro access regardless of purchase state."
-                value={devProOverride === true}
-                onValueChange={(v) => setDevProOverride(v ? true : null)}
-                tint={Colors.accent}
-              />
-              <ToggleRow
-                label="Simulate free user"
-                description="Clamp entitlement to Free for paywall & quota testing."
-                value={simulateFreeUser}
-                onValueChange={setSimulateFreeUser}
-                tint={Colors.destructive}
-                separator={false}
-              />
-            </View>
-
-            <View style={styles.debugActions}>
-              <Pressable
-                onPress={() => {
-                  clearDevOverrides();
-                  Alert.alert('Dev overrides cleared', 'Pro override and simulate-free reset.');
-                }}
-                style={({ pressed }) => [styles.debugActionBtn, pressed && { opacity: 0.7 }]}
-              >
-                <Ionicons name="refresh-outline" size={14} color={Colors.textSecondary} />
-                <Text style={styles.debugActionLabel}>Reset overrides</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => {
-                  Alert.alert(
-                    'Clear admin session?',
-                    'This signs out the dev admin and resets all test overrides.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Clear',
-                        style: 'destructive',
-                        onPress: async () => {
-                          try {
-                            await clearAdminSession();
-                            router.replace('/login');
-                          } catch {
-                            Alert.alert('Error', 'Could not clear session.');
-                          }
-                        },
-                      },
-                    ],
-                  );
-                }}
-                style={({ pressed }) => [
-                  styles.debugActionBtn,
-                  styles.debugActionDestructive,
-                  pressed && { opacity: 0.7 },
-                ]}
-              >
-                <Ionicons name="log-out-outline" size={14} color={Colors.destructive} />
-                <Text style={[styles.debugActionLabel, { color: Colors.destructive }]}>
-                  Clear admin session
-                </Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.debugFootnote}>
-              This panel is stripped from production builds. Guarded by
-              {' '}__DEV__ && EXPO_PUBLIC_ENABLE_DEV_ADMIN.
-            </Text>
-          </View>
-        )}
+        {/* ── 7. LEGAL & INFO ─────────────────────────────────────────────── */}
+        <SettingSection title="LEGAL & INFO" style={styles.section}>
+          <SettingRow
+            label="Terms of Service"
+            onPress={() => Linking.openURL('https://cenalabs.com/terms')}
+            chevron
+            icon={
+              <Ionicons name="document-text-outline" size={18} color={Colors.textSecondary} />
+            }
+          />
+          <SettingRow
+            label="Privacy Policy"
+            onPress={() => Linking.openURL('https://cenalabs.com/privacy')}
+            chevron
+            icon={
+              <Ionicons name="shield-checkmark-outline" size={18} color={Colors.textSecondary} />
+            }
+          />
+          <SettingRow
+            label="AI Disclaimer"
+            onPress={() => Linking.openURL('https://cenalabs.com/disclaimer')}
+            chevron
+            icon={
+              <Ionicons name="information-circle-outline" size={18} color={Colors.textSecondary} />
+            }
+          />
+          <SettingRow
+            label="Cookie Policy"
+            onPress={() => Linking.openURL('https://cenalabs.com/cookies')}
+            chevron
+            icon={
+              <Ionicons name="browsers-outline" size={18} color={Colors.textSecondary} />
+            }
+          />
+          <SettingRow
+            label="Acceptable Use"
+            onPress={() => Linking.openURL('https://cenalabs.com/acceptable-use')}
+            chevron
+            icon={
+              <Ionicons name="checkmark-circle-outline" size={18} color={Colors.textSecondary} />
+            }
+          />
+          <SettingRow
+            label="Contact Us"
+            onPress={() => Linking.openURL('https://cenalabs.com/contact')}
+            chevron
+            separator={false}
+            icon={
+              <Ionicons name="mail-outline" size={18} color={Colors.textSecondary} />
+            }
+          />
+        </SettingSection>
 
         {/* ── Footer ──────────────────────────────────────────────────────── */}
         <View style={styles.footer}>
@@ -507,39 +485,6 @@ function ProFeatureRow({ icon, title, description, locked, separator = true }: P
       {locked && (
         <Ionicons name="lock-closed" size={14} color={Colors.textDisabled} />
       )}
-    </View>
-  );
-}
-
-// ─── DebugFactRow (dev-only helper) ───────────────────────────────────────────
-
-interface DebugFactRowProps {
-  label: string;
-  value: boolean | string;
-  isBool?: boolean;
-  separator?: boolean;
-}
-
-function DebugFactRow({ label, value, isBool = true, separator = true }: DebugFactRowProps) {
-  const boolValue = typeof value === 'boolean' ? value : null;
-  const displayValue =
-    typeof value === 'boolean' ? (value ? 'true' : 'false') : value;
-  const valueColor =
-    boolValue === true
-      ? Colors.accent
-      : boolValue === false
-        ? Colors.destructive
-        : Colors.textSecondary;
-
-  return (
-    <View style={[styles.debugRow, separator && styles.debugRowSeparator]}>
-      <Text style={styles.debugRowLabel} numberOfLines={1}>{label}</Text>
-      <Text
-        style={[styles.debugRowValue, { color: valueColor }]}
-        numberOfLines={1}
-      >
-        {isBool || typeof value === 'boolean' ? displayValue : value}
-      </Text>
     </View>
   );
 }
@@ -723,106 +668,6 @@ const styles = StyleSheet.create({
     ...TextStyles.bodySmall,
     color: Colors.textMuted,
     maxWidth: 200,
-  },
-
-  // ─── Debug / developer (dev-only) ────────────────────────────────────────
-  debugHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-  },
-  debugBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.destructiveMuted,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: Colors.destructiveBorder,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-  },
-  debugBadgeText: {
-    fontSize: FontSize['2xs'],
-    fontWeight: '700',
-    color: Colors.destructive,
-    letterSpacing: 0.8,
-  },
-  debugSubheader: {
-    ...TextStyles.overline,
-    color: Colors.textMuted,
-    letterSpacing: 1.2,
-    paddingHorizontal: Spacing.md,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  debugCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
-  },
-  debugRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
-    gap: Spacing.md,
-  },
-  debugRowSeparator: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.border,
-  },
-  debugRowLabel: {
-    ...TextStyles.bodySmall,
-    color: Colors.textSecondary,
-    fontSize: 13,
-    flexShrink: 1,
-  },
-  debugRowValue: {
-    ...TextStyles.label,
-    fontSize: 12,
-    fontVariant: ['tabular-nums'],
-    maxWidth: 180,
-  },
-  debugActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-  },
-  debugActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    backgroundColor: Colors.surfaceHighlight,
-  },
-  debugActionDestructive: {
-    borderColor: Colors.destructiveBorder,
-    backgroundColor: Colors.destructiveMuted,
-  },
-  debugActionLabel: {
-    ...TextStyles.label,
-    color: Colors.textSecondary,
-    fontSize: 12,
-    letterSpacing: 0.3,
-  },
-  debugFootnote: {
-    ...TextStyles.caption,
-    color: Colors.textDisabled,
-    fontSize: 11,
-    marginTop: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    lineHeight: 16,
   },
 
   // Footer

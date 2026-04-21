@@ -1,32 +1,22 @@
-import { useState, useRef } from 'react';
+import { AppButton, AppScreen, Typography } from '@/components';
+import { BorderRadius, Colors, FontSize, MIN_TOUCH_TARGET, Spacing, TextStyles } from '@/constants';
+import { useAuth } from '@/providers/AuthProvider';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useRef, useState } from 'react';
 import {
-  TextInput,
-  StyleSheet,
-  View,
-  Text,
-  Pressable,
-  Keyboard,
+    Keyboard,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { AppScreen, AppButton, Typography } from '@/components';
-import { Colors, Spacing, FontSize, BorderRadius, TextStyles, MIN_TOUCH_TARGET } from '@/constants';
-import { useAuth } from '@/providers/AuthProvider';
-// [dev-admin] Remove this import block when stripping the dev-admin subsystem.
-import {
-  DEV_ADMIN_EMAIL,
-  DEV_ADMIN_ENABLED,
-  DEV_ADMIN_PASSWORD,
-} from '@/lib/devAdmin';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { signIn, signInAsDevAdmin } = useAuth();
-
-  // [dev-admin] Single compile-time-foldable constant. In release builds this
-  // is `false` and the dev-admin button / handler are dead-code-eliminated.
-  const devAdminEnabled = DEV_ADMIN_ENABLED;
+  const { signIn } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -51,33 +41,6 @@ export default function LoginScreen() {
       const msg =
         err instanceof Error ? err.message : 'Something went wrong.';
       setError(friendlyError(msg));
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  // TODO(pre-release): delete this handler AND the button below before
-  // shipping. The guard chain is: button gated by `devAdminEnabled`
-  // → handler early-returns on `!DEV_ADMIN_ENABLED` → `signInAsDevAdmin`
-  // throws on `!DEV_ADMIN_ENABLED` → `persistDevAdminSession` no-ops on
-  // `!DEV_ADMIN_ENABLED`. Any single layer is sufficient; together they
-  // make the path unreachable in release bundles.
-  async function handleDevAdminLogin() {
-    // [dev-admin] Runtime belt-and-suspenders — render-time gate already
-    // prevents this from being called outside dev builds.
-    if (!DEV_ADMIN_ENABLED) return;
-    Keyboard.dismiss();
-    setError(null);
-    setIsLoading(true);
-    try {
-      setEmail(DEV_ADMIN_EMAIL);
-      setPassword(DEV_ADMIN_PASSWORD);
-      await signInAsDevAdmin();
-      router.replace('/');
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : 'Dev admin login failed.';
-      setError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -155,34 +118,6 @@ export default function LoginScreen() {
             fullWidth
           />
 
-          {/* ─── Dev-only: Test Admin Login ──────────────────────────────── */}
-          {/* [dev-admin] Dead-code-eliminated in release bundles (DEV_ADMIN_ENABLED === false). */}
-          {devAdminEnabled && (
-            <Animated.View entering={FadeIn.duration(300)} style={styles.devAdminWrap}>
-              <View style={styles.devAdminDividerRow}>
-                <View style={styles.devAdminDivider} />
-                <Text style={styles.devAdminDividerLabel}>DEV</Text>
-                <View style={styles.devAdminDivider} />
-              </View>
-              <Pressable
-                onPress={handleDevAdminLogin}
-                disabled={isLoading}
-                style={({ pressed }) => [
-                  styles.devAdminBtn,
-                  pressed && !isLoading && { opacity: 0.75 },
-                  isLoading && { opacity: 0.5 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Sign in as test admin"
-              >
-                <Ionicons name="shield-checkmark-outline" size={14} color={Colors.textMuted} />
-                <Text style={styles.devAdminBtnLabel}>Test Admin Login</Text>
-              </Pressable>
-              <Text style={styles.devAdminCaption}>
-                Internal use only · bypasses real auth & billing
-              </Text>
-            </Animated.View>
-          )}
         </Animated.View>
 
         {/* Footer */}
@@ -307,51 +242,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // ─── Dev-admin (internal testing only) ─────────────────────────────────────
-  devAdminWrap: {
-    marginTop: Spacing.md,
-    gap: Spacing.sm,
-  },
-  devAdminDividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  devAdminDivider: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.borderSubtle,
-  },
-  devAdminDividerLabel: {
-    ...TextStyles.overline,
-    color: Colors.textDisabled,
-    fontSize: 10,
-    letterSpacing: 1.6,
-  },
-  devAdminBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    alignSelf: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    backgroundColor: Colors.surfaceHighlight,
-    minHeight: MIN_TOUCH_TARGET,
-  },
-  devAdminBtnLabel: {
-    ...TextStyles.label,
-    color: Colors.textMuted,
-    fontSize: 13,
-    letterSpacing: 0.3,
-  },
-  devAdminCaption: {
-    ...TextStyles.caption,
-    color: Colors.textDisabled,
-    fontSize: 11,
-    textAlign: 'center',
-  },
 });

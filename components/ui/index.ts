@@ -31,6 +31,8 @@ export { PremiumGate } from './PremiumGate';
 
 export { ConversationPreview } from './ConversationPreview';
 
+export { AdminGuard } from './AdminGuard';
+
 // Legacy aliases — kept for backward compat during migration
 export { AppButton as Button } from './AppButton';
 export { AppCard as Card } from './AppCard';

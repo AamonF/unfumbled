@@ -20,6 +20,7 @@ import {
   resetLocalUsage,
 } from '@/lib/localUsage';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { trackEvent } from '@/lib/analytics';
 
 interface UsageContextValue extends UsageInfo {
   /** True during the first fetch after login. */
@@ -144,7 +145,10 @@ export function UsageProvider({ children }: { children: ReactNode }) {
     return true;
   }, [user, isPro, effectiveInfo.canAnalyze, effectiveInfo.limit]);
 
-  const showPaywall = useCallback(() => setPaywallVisible(true), []);
+  const showPaywall = useCallback(() => {
+    setPaywallVisible(true);
+    void trackEvent('paywall_viewed');
+  }, []);
   const hidePaywall = useCallback(() => setPaywallVisible(false), []);
 
   const resetLocalUsageHandler = useCallback(async () => {

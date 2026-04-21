@@ -1,4 +1,18 @@
 export { supabase, isSupabaseConfigured } from './supabase';
+export { trackEvent, trackScreen } from './analytics';
+export type { EventMetadata } from './analytics';
+export { ADMIN_EMAIL, isAdminEmail, isAdminUser } from './adminAccess';
+export type {
+  AdminTestingOverrides,
+  AdminEntitlementMode,
+  AdminEntitlementPickerOption,
+} from './adminTesting';
+export {
+  ADMIN_ENTITLEMENT_PICKER_OPTIONS,
+  adminEntitlementModeFromOverrides,
+  modeFromPickerOption,
+  pickerOptionFromMode,
+} from './adminTesting';
 export {
   DEFAULT_SETTINGS,
   REPLY_STYLES,

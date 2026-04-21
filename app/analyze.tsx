@@ -44,6 +44,7 @@ import {
   ParseScreenshotsError,
 } from '@/services';
 import { analysisStore } from '@/lib/analysisStore';
+import { trackEvent } from '@/lib/analytics';
 import { useUsage } from '@/providers/UsageProvider';
 import { useSettings } from '@/providers/SettingsProvider';
 import type { ParsedConversation } from '@/types';
@@ -446,6 +447,8 @@ export default function AnalyzeScreen() {
     setIsLoading(true);
     contentOpacity.value = withTiming(0.38, { duration: 300 });
 
+    void trackEvent('analysis_started', { mode: inputMode });
+
     try {
       const result = await analyzeConversation(
         {
@@ -460,6 +463,8 @@ export default function AnalyzeScreen() {
 
       const id = createAnalysisId();
       analysisStore.set(id, result, conversationText);
+
+      void trackEvent('analysis_completed', { score: result.interest_score });
 
       await recordAnalysis();
 
@@ -568,60 +573,6 @@ export default function AnalyzeScreen() {
               </Animated.View>
             )}
           </Animated.View>
-
-          {/* ── DEV-only subscription status panel ─────────────────────────── */}
-          {/* Stripped from release bundles by the __DEV__ guard. Lets you
-              inspect plan/quota state and trigger the paywall during testing. */}
-          {__DEV__ && (
-            <Animated.View
-              entering={FadeIn.duration(300)}
-              style={styles.debugPanel}
-            >
-              <View style={styles.debugPanelHeader}>
-                <Ionicons name="construct-outline" size={12} color={Colors.destructive} />
-                <Text style={styles.debugPanelTitle}>SUBSCRIPTION DEBUG</Text>
-              </View>
-              <DebugLine label="Plan" value={isPro ? 'Premium' : 'Free'} />
-              <DebugLine label="Used analyses" value={String(analysisCount)} />
-              <DebugLine
-                label="Remaining"
-                value={isPro ? 'Unlimited' : String(remaining ?? 0)}
-              />
-              <DebugLine
-                label="Can analyze"
-                value={hasQuota ? 'Yes' : 'No'}
-                tone={hasQuota ? 'good' : 'bad'}
-              />
-              <DebugLine
-                label="RC loading"
-                value={subLoading ? 'true' : 'false'}
-              />
-              <View style={styles.debugPanelActions}>
-                <Pressable
-                  onPress={showPaywall}
-                  style={({ pressed }) => [
-                    styles.debugPanelBtn,
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <Ionicons name="sparkles" size={12} color={Colors.primaryLight} />
-                  <Text style={styles.debugPanelBtnText}>Open paywall</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    resetLocalUsageHandler();
-                  }}
-                  style={({ pressed }) => [
-                    styles.debugPanelBtn,
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <Ionicons name="refresh-outline" size={12} color={Colors.textSecondary} />
-                  <Text style={styles.debugPanelBtnText}>Reset local usage</Text>
-                </Pressable>
-              </View>
-            </Animated.View>
-          )}
 
           {/* ── Input mode tabs ─────────────────────────────────────────────── */}
           <Animated.View entering={FadeInDown.duration(500).delay(90)} style={styles.modeTabs}>
@@ -990,31 +941,6 @@ export default function AnalyzeScreen() {
           )}
         </View>
       </KeyboardAvoidingView>
-    </View>
-  );
-}
-
-// ─── Debug status line (DEV only) ────────────────────────────────────────────
-
-function DebugLine({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: 'good' | 'bad';
-}) {
-  const valueColor =
-    tone === 'good' ? Colors.accent :
-    tone === 'bad'  ? Colors.destructive :
-    Colors.text;
-  return (
-    <View style={styles.debugLine}>
-      <Text style={styles.debugLineLabel}>{label}</Text>
-      <Text style={[styles.debugLineValue, { color: valueColor }]} numberOfLines={1}>
-        {value}
-      </Text>
     </View>
   );
 }
@@ -1457,68 +1383,4 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
 
-  // Debug panel (DEV only)
-  debugPanel: {
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.destructiveBorder,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    gap: 4,
-  },
-  debugPanelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-  },
-  debugPanelTitle: {
-    ...TextStyles.overline,
-    color: Colors.destructive,
-    fontSize: 10,
-    letterSpacing: 1.2,
-  },
-  debugLine: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 2,
-  },
-  debugLineLabel: {
-    ...TextStyles.caption,
-    color: Colors.textSecondary,
-    fontSize: 12,
-  },
-  debugLineValue: {
-    ...TextStyles.label,
-    fontSize: 12,
-    fontVariant: ['tabular-nums'],
-    maxWidth: 180,
-  },
-  debugPanelActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 6,
-  },
-  debugPanelBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    backgroundColor: Colors.surfaceHighlight,
-  },
-  debugPanelBtnText: {
-    ...TextStyles.label,
-    fontSize: 11,
-    color: Colors.textSecondary,
-    letterSpacing: 0.2,
-  },
 });
