@@ -38,7 +38,7 @@
       }
     },
     "production": {
-      "autoIncrement": true,
+      "autoIncrement": false,
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://uqfcdenoorjihuqjlmku.supabase.co/functions/v1",
