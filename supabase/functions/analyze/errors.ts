@@ -28,6 +28,8 @@ export type ErrorCode =
   | 'EMPTY_INPUT'
   /** Request used a verb other than POST / OPTIONS. */
   | 'METHOD_NOT_ALLOWED'
+  /** Authenticated user has exhausted their free analysis quota. */
+  | 'QUOTA_EXCEEDED'
   /** OpenAI unreachable, timed out, or returned non-2xx. */
   | 'UPSTREAM_FAILURE'
   /** OpenAI responded but its output was malformed / failed schema validation. */

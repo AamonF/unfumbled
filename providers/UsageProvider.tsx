@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   useCallback,
   useMemo,
@@ -13,7 +14,7 @@ import { useEntitlement } from '@/providers/EntitlementProvider';
 // so the skip branches below are dead code in release bundles. Safe to
 // delete along with the rest of the dev-admin subsystem.
 import { isDevAdminUserId } from '@/lib/devAdmin';
-import { fetchUsage, incrementUsage, type UsageInfo, FREE_ANALYSIS_LIMIT } from '@/lib/usage';
+import { fetchUsage, type UsageInfo, FREE_ANALYSIS_LIMIT } from '@/lib/usage';
 import {
   loadLocalUsage,
   incrementLocalUsage,
@@ -27,8 +28,21 @@ interface UsageContextValue extends UsageInfo {
   loading: boolean;
   /** Re-fetch usage from the server. */
   refresh: () => Promise<void>;
-  /** Atomically increment count; returns whether the action was allowed. */
-  recordAnalysis: () => Promise<boolean>;
+  /**
+   * Record a completed analysis.
+   *
+   * `serverRemaining` is the authoritative remaining count returned by the
+   * /analyze Edge Function after it incremented the DB counter. When present
+   * it is used directly to update local state (no additional RPC needed).
+   *
+   * Pass `null` for unauthenticated sessions — the function falls back to
+   * the AsyncStorage-based local counter.
+   *
+   * Returns `true` when the action was permitted, `false` when the local
+   * quota state was already exhausted (should never reach here because the
+   * button is disabled, but kept as a safety guard).
+   */
+  recordAnalysis: (serverRemaining: number | null) => Promise<boolean>;
   /** Show the paywall modal. */
   showPaywall: () => void;
   /** Hide the paywall modal. */
@@ -56,9 +70,25 @@ export function UsageProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
 
+  // Track the previously-seen user id so we can detect sign-in/out events
+  // and immediately re-sync usage from the server.
+  const prevUserIdRef = useRef<string | null | undefined>(undefined);
+
   const useLocalFallback = !user || !isSupabaseConfigured;
 
+  // ── refresh ────────────────────────────────────────────────────────────────
+  // Always reads the authoritative source:
+  //   • Authenticated + Supabase configured → Supabase `profiles` row.
+  //   • Otherwise → AsyncStorage local counter.
+  // Server value always wins when both sources exist (prevents reinstall reset).
   const refresh = useCallback(async () => {
+    if (__DEV__) {
+      console.log(
+        `[usage] refresh — userId=${user?.id ?? 'none'}, ` +
+        `isSupabaseConfigured=${isSupabaseConfigured}`,
+      );
+    }
+
     // No user OR Supabase not configured → read from AsyncStorage so the
     // 3-analysis free cap survives across launches even when offline /
     // unauthenticated.
@@ -66,6 +96,11 @@ export function UsageProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       try {
         const local = await loadLocalUsage();
+        if (__DEV__) {
+          console.log(
+            `[usage] local usage loaded — count=${local.analysisCount}, remaining=${local.remaining}`,
+          );
+        }
         setInfo(local);
       } catch {
         setInfo(DEFAULT);
@@ -74,6 +109,7 @@ export function UsageProvider({ children }: { children: ReactNode }) {
       }
       return;
     }
+
     // [dev-admin] Dev-admin has no backing profile row — use the local
     // counter (it'll be overridden to "unlimited" by `effectiveInfo` below
     // via `isPro`). Dead code in release bundles.
@@ -82,19 +118,40 @@ export function UsageProvider({ children }: { children: ReactNode }) {
       setInfo(local);
       return;
     }
+
     setLoading(true);
     try {
       const data = await fetchUsage(user.id);
+      if (__DEV__) {
+        console.log(
+          `[usage] server usage fetched — count=${data.analysisCount}, ` +
+          `remaining=${data.remaining}, tier=${data.tier}`,
+        );
+      }
       setInfo(data);
-    } catch {
-      // Keep stale value on error
+    } catch (err) {
+      if (__DEV__) console.warn('[usage] server fetch failed — keeping stale value', err);
+      // Keep stale value on error; next refresh will reconcile.
     } finally {
       setLoading(false);
     }
   }, [user]);
 
+  // Re-fetch usage whenever the user changes (sign-in, sign-out, token refresh).
+  // This ensures reinstall-then-login restores the correct server count rather
+  // than starting fresh from AsyncStorage.
   useEffect(() => {
-    refresh();
+    const currentId = user?.id ?? null;
+    if (prevUserIdRef.current !== undefined && prevUserIdRef.current !== currentId) {
+      if (__DEV__) {
+        console.log(
+          `[usage] user changed (${prevUserIdRef.current ?? 'none'} → ${currentId ?? 'none'}) — ` +
+          're-syncing usage from server',
+        );
+      }
+    }
+    prevUserIdRef.current = currentId;
+    void refresh();
   }, [refresh]);
 
   // When RevenueCat says the user is Pro, override the tier to unlock features
@@ -113,37 +170,80 @@ export function UsageProvider({ children }: { children: ReactNode }) {
     return info;
   }, [isPro, info]);
 
-  const recordAnalysis = useCallback(async (): Promise<boolean> => {
-    if (!effectiveInfo.canAnalyze) return false;
+  // ── recordAnalysis ─────────────────────────────────────────────────────────
+  // Called by analyze.tsx ONLY after the /analyze API call succeeds.
+  //
+  // Authenticated path: the Edge Function already incremented the DB counter
+  //   and returned the authoritative `serverRemaining`. We apply that value
+  //   directly to local state — no additional RPC required.
+  //
+  // Unauthenticated path (serverRemaining === null): fall back to incrementing
+  //   the AsyncStorage counter so the local limit still applies.
+  const recordAnalysis = useCallback(
+    async (serverRemaining: number | null): Promise<boolean> => {
+      if (!effectiveInfo.canAnalyze) {
+        if (__DEV__) console.log('[usage] recordAnalysis blocked — canAnalyze=false');
+        return false;
+      }
 
-    // Premium bypass: no counter to bump.
-    if (isPro) return true;
+      if (__DEV__) {
+        console.log(
+          `[usage] recordAnalysis called — ` +
+          `serverRemaining=${serverRemaining}, ` +
+          `localRemaining=${effectiveInfo.remaining}, ` +
+          `isPro=${isPro}`,
+        );
+      }
 
-    // Local fallback path: no user (signed out) OR no Supabase configured.
-    if (!user || !isSupabaseConfigured) {
+      // Premium bypass: no counter to bump.
+      if (isPro) {
+        if (__DEV__) console.log('[usage] isPro — skipping counter update');
+        return true;
+      }
+
+      // ── Authenticated path: trust the server's returned remaining count ──────
+      // The Edge Function called `record_analysis` atomically after OpenAI
+      // succeeded. `serverRemaining` is the value from that DB call — use it
+      // directly so the UI reflects the exact server state without a round-trip.
+      if (serverRemaining !== null && user && isSupabaseConfigured && !isDevAdminUserId(user.id)) {
+        const limit = effectiveInfo.limit ?? FREE_ANALYSIS_LIMIT;
+        const newCount = Math.max(0, limit - serverRemaining);
+        if (__DEV__) {
+          console.log(
+            `[usage] applying server remaining=${serverRemaining} → ` +
+            `count=${newCount}, canAnalyze=${serverRemaining > 0}`,
+          );
+        }
+        setInfo((prev) => ({
+          ...prev,
+          analysisCount: newCount,
+          remaining: serverRemaining,
+          canAnalyze: serverRemaining > 0,
+        }));
+        return true;
+      }
+
+      // [dev-admin] Dev-admin sessions never hit the server-side counter.
+      if (user && isDevAdminUserId(user.id)) {
+        if (__DEV__) console.log('[usage] dev-admin — skipping counter');
+        return true;
+      }
+
+      // ── Local fallback: no session / no Supabase / unauthenticated ────────────
+      // Increment AsyncStorage so the 3-analysis cap still applies offline.
+      if (__DEV__) console.log('[usage] local fallback — incrementing AsyncStorage counter');
       const next = await incrementLocalUsage();
+      if (__DEV__) {
+        console.log(
+          `[usage] local counter saved — count=${next.analysisCount}, ` +
+          `remaining=${next.remaining}, canAnalyze=${next.canAnalyze}`,
+        );
+      }
       setInfo(next);
       return true;
-    }
-
-    // [dev-admin] Dev-admin sessions never hit the server-side counter, and
-    // since dev-admin is implicitly Pro (see EntitlementProvider) the early
-    // `isPro` return above almost always covers this. Belt-and-suspenders.
-    if (isDevAdminUserId(user.id)) return true;
-
-    const newCount = await incrementUsage(user.id);
-    if (newCount < 0) return true;
-
-    const limit = effectiveInfo.limit;
-    setInfo((prev) => ({
-      ...prev,
-      analysisCount: newCount,
-      remaining: limit !== null ? Math.max(0, limit - newCount) : null,
-      canAnalyze: limit === null || newCount < limit,
-    }));
-
-    return true;
-  }, [user, isPro, effectiveInfo.canAnalyze, effectiveInfo.limit]);
+    },
+    [user, isPro, effectiveInfo.canAnalyze, effectiveInfo.limit, effectiveInfo.remaining],
+  );
 
   const showPaywall = useCallback(() => {
     setPaywallVisible(true);

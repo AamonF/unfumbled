@@ -26,6 +26,7 @@ import {
 // unreachable in production even though the import statement is present.
 import { DEV_MOCK_ENABLED, getDevMockResult } from './devMock';
 import { computeWeightedScore, spreadScore } from '@/lib/scoring';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 // ─── Request shape ────────────────────────────────────────────────────────────
 
@@ -71,7 +72,9 @@ export type AnalyzeConversationErrorCode =
   | 'NETWORK_ERROR'
   | 'TIMEOUT'
   | 'HTTP_ERROR'
-  | 'INVALID_RESPONSE';
+  | 'INVALID_RESPONSE'
+  /** Server confirmed the user has exhausted their free quota (HTTP 429). */
+  | 'QUOTA_EXCEEDED';
 
 /**
  * Every failure path out of `analyzeConversation` throws this. Callers can
@@ -325,7 +328,10 @@ function friendlyHttpMessage(status: number): string {
     return 'You need to be signed in to run an analysis.';
   }
   if (status === 429) {
-    return 'Too many analyses right now. Please wait a moment and try again.';
+    // Quota-exceeded messages are surfaced via the QUOTA_EXCEEDED error code
+    // in the caller — the generic message here is a fallback for rate-limit
+    // responses that don't carry the server's error envelope.
+    return 'You have used all 3 free analyses. Upgrade to continue.';
   }
   if (status >= 500) {
     return 'Our analysis service is having trouble. Please try again shortly.';
@@ -406,8 +412,48 @@ function createCombinedAbort(
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * The return value from a successful `analyzeConversation` call.
+ *
+ * `remaining` is the authoritative free-analysis count from the server
+ * (null when the user is premium or the request was unauthenticated). The
+ * caller should persist this to local state so the UI counter stays correct
+ * without a separate round-trip.
+ */
+export interface AnalyzeConversationResult {
+  result: AnalysisResult;
+  /** Server-authoritative remaining free analyses, or null for premium / unauthenticated. */
+  remaining: number | null;
+}
+
+/**
+ * Read the current Supabase session access token for injection into the
+ * analyze request. Returns null when Supabase is not configured or there
+ * is no active session (unauthenticated path).
+ */
+async function getAccessToken(): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Send a conversation to the Unfumbled backend and get back a validated
- * `AnalysisResult`. Throws `AnalyzeConversationError` on every failure path.
+ * `AnalysisResult` plus the server-authoritative remaining quota count.
+ * Throws `AnalyzeConversationError` on every failure path.
+ *
+ * The function automatically attaches the Supabase JWT (when a session
+ * exists) so the Edge Function can enforce quota server-side. For
+ * unauthenticated sessions the header is omitted and the server lets
+ * the request through — the mobile client enforces the limit locally.
+ *
+ * ─── Response format ─────────────────────────────────────────────────────────
+ * The server returns `{ data: AnalysisResult, meta: { remaining, tier } }`.
+ * For backward compat with older local-dev edge-function builds, the service
+ * also accepts the legacy flat `AnalysisResult` shape (no `data` wrapper).
  *
  * ─── Development mock fallbacks ──────────────────────────────────────────────
  *
@@ -429,7 +475,7 @@ function createCombinedAbort(
 export async function analyzeConversation(
   request: AnalyzeConversationRequest,
   options: AnalyzeConversationOptions = {},
-): Promise<AnalysisResult> {
+): Promise<AnalyzeConversationResult> {
   const conversationText = (request.conversationText ?? '').trim();
   if (conversationText.length === 0) {
     throw new AnalyzeConversationError(
@@ -447,7 +493,7 @@ export async function analyzeConversation(
       '[analyze:mock] EXPO_PUBLIC_API_URL is not set — returning mock result.\n' +
         'Add EXPO_PUBLIC_API_URL to .env.local and restart with `npx expo start -c`.',
     );
-    return getDevMockResult();
+    return { result: getDevMockResult(), remaining: null };
   }
 
   const apiUrl = resolveApiUrl();
@@ -456,6 +502,19 @@ export async function analyzeConversation(
 
   if (__DEV__) {
     console.log('[analyze] url:', url, '| input length:', conversationText.length);
+  }
+
+  // Attach the Supabase JWT when a session is active. The Edge Function uses
+  // this to verify the user's identity and enforce server-side quota. When
+  // there is no session the header is omitted — the server lets anonymous
+  // requests through and the mobile client owns the limit for those users.
+  const accessToken = await getAccessToken();
+  const authHeaders: Record<string, string> = accessToken
+    ? { Authorization: `Bearer ${accessToken}` }
+    : {};
+
+  if (__DEV__) {
+    console.log('[analyze] auth token present:', Boolean(accessToken));
   }
 
   const abort = createCombinedAbort(callerSignal, timeoutMs);
@@ -468,6 +527,7 @@ export async function analyzeConversation(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        ...authHeaders,
       },
       body: JSON.stringify(body),
       signal: abort.signal,
@@ -480,7 +540,7 @@ export async function analyzeConversation(
     if (DEV_MOCK_ENABLED && useMockOnFailure) {
       console.warn('[analyze:mock] request failed, useMockOnFailure=true — returning mock result. cause:', err);
       abort.cleanup();
-      return getDevMockResult();
+      return { result: getDevMockResult(), remaining: null };
     }
 
     if (abort.didTimeOut()) {
@@ -520,6 +580,17 @@ export async function analyzeConversation(
     // generic, status-code-based message when the body can't be parsed.
     const envelope = tryParseErrorEnvelope(rawText);
 
+    // 429 with QUOTA_EXCEEDED → dedicated error code so the UI can show the
+    // paywall rather than a generic error card.
+    if (response.status === 429 && envelope?.code === 'QUOTA_EXCEEDED') {
+      throw new AnalyzeConversationError(
+        envelope.message,
+        'QUOTA_EXCEEDED',
+        429,
+        { serverCode: envelope.code, rawText },
+      );
+    }
+
     throw new AnalyzeConversationError(
       envelope?.message ?? friendlyHttpMessage(response.status),
       'HTTP_ERROR',
@@ -541,7 +612,40 @@ export async function analyzeConversation(
     if (__DEV__) {
       console.warn('[analyze] extractJSON returned null — using fallback result');
     }
-    return buildFallbackResult();
+    return { result: buildFallbackResult(), remaining: null };
+  }
+
+  // ── 1b. Unwrap the { data, meta } envelope ─────────────────────────────────
+  // The current Edge Function wraps the analysis result:
+  //   { data: AnalysisResult, meta: { remaining: number | null, tier: string } }
+  // For backward compat with older local-dev builds (which returned the flat
+  // AnalysisResult directly), we detect the wrapper and fall back gracefully.
+  let analysisPayload: unknown = rawPayload;
+  let serverRemaining: number | null = null;
+
+  const envelope = rawPayload as Record<string, unknown>;
+  if (
+    envelope &&
+    typeof envelope === 'object' &&
+    'data' in envelope &&
+    envelope.data !== null &&
+    typeof envelope.data === 'object'
+  ) {
+    analysisPayload = envelope.data;
+    const meta = envelope.meta as Record<string, unknown> | undefined;
+    if (meta && typeof meta.remaining === 'number') {
+      serverRemaining = meta.remaining;
+    }
+    if (__DEV__) {
+      console.log(
+        '[analyze] wrapped response envelope — serverRemaining:', serverRemaining,
+        '| tier:', (meta as Record<string, unknown> | undefined)?.tier ?? 'unknown',
+      );
+    }
+  } else {
+    if (__DEV__) {
+      console.log('[analyze] legacy flat response (no envelope wrapper)');
+    }
   }
 
   // ── 2. Normalize BEFORE Zod validation ───────────────────────────────────
@@ -550,7 +654,7 @@ export async function analyzeConversation(
   // `@/types` so any schema change has a single place to update.
 
   if (__DEV__) {
-    const p = rawPayload as Record<string, unknown>;
+    const p = analysisPayload as Record<string, unknown>;
     const isLegacy =
       (typeof p.ghost_risk === 'string' ||
         typeof p.mistake_detected === 'string' ||
@@ -562,7 +666,7 @@ export async function analyzeConversation(
     );
   }
 
-  const normalized = normalizeAnalysisResponse(rawPayload);
+  const normalized = normalizeAnalysisResponse(analysisPayload);
 
   // ── 3. Zod validation on the normalized object ────────────────────────────
   const parsed = AnalysisResultSchema.safeParse(normalized);
@@ -584,7 +688,7 @@ export async function analyzeConversation(
     // Returning a fallback instead of throwing means the UI can still render a
     // result screen. Any score or summary that survived normalization is preserved;
     // everything else gets a neutral placeholder the user can act on.
-    return buildFallbackResult(normalized);
+    return { result: buildFallbackResult(normalized), remaining: serverRemaining };
   }
 
   // ── 5. Derive the final score from subscores, then spread it ────────────────
@@ -616,9 +720,10 @@ export async function analyzeConversation(
       `  subscores:     ${JSON.stringify(parsed.data.subscores)}\n` +
       `  contributions: ${weighted.contributions
         .map((c) => `${c.label} ${c.delta >= 0 ? '+' : ''}${c.delta.toFixed(1)}`)
-        .join(', ')}`,
+        .join(', ')}\n` +
+      `  serverRemaining: ${serverRemaining}`,
     );
   }
 
-  return { ...parsed.data, interest_score: finalScore };
+  return { result: { ...parsed.data, interest_score: finalScore }, remaining: serverRemaining };
 }

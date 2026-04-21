@@ -16,6 +16,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withSpring,
   FadeIn,
   FadeInDown,
   FadeOut,
@@ -84,6 +85,7 @@ const ERROR_ICONS: Record<AnalyzeConversationErrorCode, string> = {
   TIMEOUT: 'time-outline',
   HTTP_ERROR: 'server-outline',
   INVALID_RESPONSE: 'bug-outline',
+  QUOTA_EXCEEDED: 'lock-closed-outline',
 };
 
 /**
@@ -154,8 +156,8 @@ export default function AnalyzeScreen() {
     canAnalyze: hasQuota,
     remaining,
     tier,
-    analysisCount,
     showPaywall,
+    refresh,
     recordAnalysis,
     resetLocalUsage: resetLocalUsageHandler,
   } = useUsage();
@@ -199,6 +201,34 @@ export default function AnalyzeScreen() {
   const [parsedConversation, setParsedConversation] = useState<ParsedConversation | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  // Prevents a double-tap from firing two analysis requests / decrements
+  // even in the brief window before `isLoading` state has propagated.
+  const isAnalyzingRef = useRef(false);
+
+  // ── Quota badge pop animation ─────────────────────────────────────────────
+  const quotaCountScale = useSharedValue(1);
+  const quotaCountStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: quotaCountScale.value }],
+  }));
+  const prevRemainingRef = useRef<number | null>(remaining);
+  useEffect(() => {
+    if (
+      remaining !== null &&
+      prevRemainingRef.current !== null &&
+      remaining < prevRemainingRef.current
+    ) {
+      // Number just dropped — pop then settle back to 1.
+      quotaCountScale.value = withSpring(1.28, { damping: 6, stiffness: 260 }, () => {
+        quotaCountScale.value = withSpring(1, { damping: 14, stiffness: 200 });
+      });
+      if (__DEV__) {
+        console.log(
+          `[analyze] UI counter: ${prevRemainingRef.current} → ${remaining} free analyses remaining`,
+        );
+      }
+    }
+    prevRemainingRef.current = remaining;
+  }, [remaining, quotaCountScale]);
 
   const trimmedText = text.trim();
   const charCount = text.length;
@@ -362,7 +392,10 @@ export default function AnalyzeScreen() {
   async function handleAnalyze() {
     // Belt-and-suspenders: button is already disabled during both, but guard
     // here in case the error-card "Try Again" button fires unexpectedly.
-    if (isLoading || isParsing) return;
+    // isAnalyzingRef adds an extra layer against rapid double-taps that can
+    // slip through before the async state update has flushed to the UI.
+    if (isLoading || isParsing || isAnalyzingRef.current) return;
+    isAnalyzingRef.current = true;
 
     // ── Resolve conversation text ──────────────────────────────────────────
     // Screenshot mode: prefer the server-built combinedText (always present
@@ -434,8 +467,15 @@ export default function AnalyzeScreen() {
     }
 
     if (!hasQuota) {
+      isAnalyzingRef.current = false;
       showPaywall();
       return;
+    }
+
+    if (__DEV__) {
+      console.log(
+        `[analyze] starting analysis — remaining=${remaining}, mode=${inputMode}, len=${conversationText.length}`,
+      );
     }
 
     abortRef.current?.abort();
@@ -450,7 +490,7 @@ export default function AnalyzeScreen() {
     void trackEvent('analysis_started', { mode: inputMode });
 
     try {
-      const result = await analyzeConversation(
+      const { result, remaining: apiRemaining } = await analyzeConversation(
         {
           conversationText,
           brutalMode: brutalHonesty,
@@ -466,7 +506,9 @@ export default function AnalyzeScreen() {
 
       void trackEvent('analysis_completed', { score: result.interest_score });
 
-      await recordAnalysis();
+      if (__DEV__) console.log('[analyze] API succeeded — calling recordAnalysis');
+      await recordAnalysis(apiRemaining);
+      if (__DEV__) console.log('[analyze] recordAnalysis complete — navigating to results');
 
       contentOpacity.value = withTiming(1, { duration: 200 });
       setIsLoading(false);
@@ -482,6 +524,18 @@ export default function AnalyzeScreen() {
       contentOpacity.value = withTiming(1, { duration: 200 });
       setIsLoading(false);
 
+      if (__DEV__) console.warn('[analyze] API failed — counter NOT decremented');
+
+      // Server confirmed quota is exhausted (HTTP 429 QUOTA_EXCEEDED).
+      // Refresh usage from server to reconcile local state, then show the
+      // paywall rather than the generic error card.
+      if (err instanceof AnalyzeConversationError && err.code === 'QUOTA_EXCEEDED') {
+        if (__DEV__) console.log('[analyze] QUOTA_EXCEEDED from server — refreshing + showing paywall');
+        void refresh();
+        showPaywall();
+        return;
+      }
+
       const mapped =
         err instanceof AnalyzeConversationError
           ? { message: err.message, code: err.code }
@@ -494,6 +548,7 @@ export default function AnalyzeScreen() {
       setTimeout(() => { scrollRef.current?.scrollToEnd({ animated: true }); }, 100);
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
+      isAnalyzingRef.current = false;
     }
   }
 
@@ -554,7 +609,10 @@ export default function AnalyzeScreen() {
               Paste a conversation or upload screenshots.
             </Text>
             {tier === 'free' && remaining !== null && (
-              <Animated.View entering={FadeIn.duration(280)} style={styles.quotaBadge}>
+              <Animated.View
+                entering={FadeIn.duration(280)}
+                style={[styles.quotaBadge, quotaCountStyle]}
+              >
                 <Ionicons
                   name={remaining > 0 ? 'sparkles-outline' : 'lock-closed-outline'}
                   size={13}
