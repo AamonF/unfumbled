@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.cenalabs.unfumbled",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Unfumbled needs access to your photo library so you can upload screenshots of a conversation and get it analyzed.",
         "ITSAppUsesNonExemptEncryption": false
@@ -45,6 +45,18 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1b8ef29d-d16d-4ccd-849c-fa79f003065d"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/1b8ef29d-d16d-4ccd-849c-fa79f003065d"
     }
   }
 }

@@ -15,8 +15,7 @@
         "EXPO_PUBLIC_API_URL": "https://uqfcdenoorjihuqjlmku.supabase.co/functions/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://uqfcdenoorjihuqjlmku.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxZmNkZW5vb3JqaWh1cWpsbWt1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyOTQyMDYsImV4cCI6MjA5MTg3MDIwNn0.kaGlRiiLYMwd7g3SGzZB5rCFekBD0U6r4pWF5_Bimac",
-        "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY": "test_OFwVqJgRBhFbgedpGhLYFFzpvNr",
-        "EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY": "test_OFwVqJgRBhFbgedpGhLYFFzpvNr",
+        "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY": "appl_ZQDAByFiXrdCZYwdJrFAGKoxjea",
         "EXPO_PUBLIC_ANALYTICS_KEY": "disabled",
         "EXPO_PUBLIC_ENABLE_DEV_ADMIN": "true"
       }
@@ -31,8 +30,7 @@
         "EXPO_PUBLIC_API_URL": "https://uqfcdenoorjihuqjlmku.supabase.co/functions/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://uqfcdenoorjihuqjlmku.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxZmNkZW5vb3JqaWh1cWpsbWt1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyOTQyMDYsImV4cCI6MjA5MTg3MDIwNn0.kaGlRiiLYMwd7g3SGzZB5rCFekBD0U6r4pWF5_Bimac",
-        "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY": "test_OFwVqJgRBhFbgedpGhLYFFzpvNr",
-        "EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY": "test_OFwVqJgRBhFbgedpGhLYFFzpvNr",
+        "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY": "appl_ZQDAByFiXrdCZYwdJrFAGKoxjea",
         "EXPO_PUBLIC_ANALYTICS_KEY": "disabled",
         "EXPO_PUBLIC_ENABLE_DEV_ADMIN": "false"
       }
@@ -44,8 +42,7 @@
         "EXPO_PUBLIC_API_URL": "https://uqfcdenoorjihuqjlmku.supabase.co/functions/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://uqfcdenoorjihuqjlmku.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxZmNkZW5vb3JqaWh1cWpsbWt1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyOTQyMDYsImV4cCI6MjA5MTg3MDIwNn0.kaGlRiiLYMwd7g3SGzZB5rCFekBD0U6r4pWF5_Bimac",
-        "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY": "test_OFwVqJgRBhFbgedpGhLYFFzpvNr",
-        "EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY": "test_OFwVqJgRBhFbgedpGhLYFFzpvNr",
+        "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY": "appl_ZQDAByFiXrdCZYwdJrFAGKoxjea",
         "EXPO_PUBLIC_ANALYTICS_KEY": "disabled",
         "EXPO_PUBLIC_ENABLE_DEV_ADMIN": "false"
       }

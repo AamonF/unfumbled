@@ -47,17 +47,21 @@ export function configureRevenueCat(): void {
     return;
   }
 
-  // Soft validation: warn about wrong-prefix keys (e.g. `test_…` web billing
-  // keys) but still attempt configure so the developer sees the SDK's own
-  // error message in the logs.
+  // HARD validation: wrong-prefix keys (e.g. `test_…` RevenueCat Web Billing
+  // sandbox keys) MUST NOT reach `Purchases.configure` on the native side.
+  // The iOS SDK's native initializer raises an NSException for invalid keys,
+  // which escapes the JS try/catch below and takes down the app at launch —
+  // exactly the TestFlight-crash scenario we hit shipping a `test_…` key.
+  // Fail closed here so the app still boots; RC features simply stay disabled
+  // until a real platform key (`appl_…` / `goog_…`) is provided.
   const expected = expectedKeyPrefix();
   if (!apiKey.startsWith(expected)) {
-    console.warn(
-      `[RevenueCat] API key does not start with "${expected}" — the native ` +
-        `SDK will likely reject this key. Got prefix "${apiKey.slice(0, 5)}…". ` +
-        `On ${Platform.OS}, use a key from https://app.revenuecat.com → Project → ` +
-        `API Keys (Public app-specific key).`,
-    );
+    _initError =
+      `Wrong API key prefix for ${Platform.OS} — expected "${expected}", ` +
+      `got "${apiKey.slice(0, 5)}…". Use a Public app-specific API key from ` +
+      `https://app.revenuecat.com → Project → API Keys.`;
+    console.warn('[RevenueCat]', _initError);
+    return;
   }
 
   if (__DEV__) {
