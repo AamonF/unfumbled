@@ -63,6 +63,7 @@ export default function SavedScreen() {
 
   useEffect(() => {
     const unsub = savedAnalysisStore.subscribe((next) => {
+      console.log(`[saved] subscription update — ${next.length} items`);
       setItems(next);
       setLoading(false);
     });
@@ -219,7 +220,13 @@ export default function SavedScreen() {
               <Animated.View entering={FadeInDown.duration(320).delay(Math.min(index * 50, 400))}>
                 <SavedCard
                   item={item}
-                  onPress={() => router.push(`/results/${item.id}`)}
+                  onPress={() => {
+                    console.log(
+                      `[saved] opening item — id=${item.id} ` +
+                        `incomplete=${!!item.incomplete} savedAt=${item.savedAt}`,
+                    );
+                    router.push(`/results/${item.id}`);
+                  }}
                   onDelete={() => handleDelete(item.id)}
                 />
               </Animated.View>

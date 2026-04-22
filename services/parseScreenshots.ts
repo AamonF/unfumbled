@@ -67,8 +67,11 @@ function resolveApiUrl(): string {
   const raw = process.env.EXPO_PUBLIC_API_URL;
   const url = typeof raw === 'string' ? raw.trim() : '';
   if (!url) {
+    console.warn('[parseScreenshots] MISSING_API_URL — EXPO_PUBLIC_API_URL is not set');
+    // Controlled error — caller shows a friendly message, no native crash.
     throw new ParseScreenshotsError(
-      'EXPO_PUBLIC_API_URL is not set. Add it to .env.local and restart Expo with `npx expo start -c`.',
+      'Screenshot extraction is temporarily unavailable (backend not configured). ' +
+        'Please try again later or contact support.',
       'MISSING_API_URL',
     );
   }
@@ -204,6 +207,8 @@ export async function parseScreenshots(
   assets: ImagePickerAsset[],
   signal?: AbortSignal,
 ): Promise<ParsedConversation> {
+  console.log(`[parseScreenshots] request start — assets=${assets.length}`);
+
   if (assets.length === 0) {
     throw new ParseScreenshotsError(
       'No images provided.',
@@ -293,9 +298,10 @@ export async function parseScreenshots(
 
   const rawText = await response.text().catch(() => '');
 
-  if (__DEV__) {
-    console.log('[extract] status:', response.status, '| body preview:', rawText.slice(0, 200));
-  }
+  console.log(
+    `[parseScreenshots] response — status=${response.status} bytes=${rawText.length} ` +
+    `preview=${JSON.stringify(rawText.slice(0, 180))}`,
+  );
 
   if (!response.ok) {
     // Give a specific message for common status codes so the developer
@@ -318,24 +324,38 @@ export async function parseScreenshots(
   let payload: unknown;
   try {
     payload = JSON.parse(rawText);
-  } catch {
-    if (__DEV__) console.error('[extract] JSON parse failed. raw:', rawText.slice(0, 200));
+  } catch (err) {
+    console.warn(
+      `[parseScreenshots] JSON parse failed — raw preview: ${JSON.stringify(rawText.slice(0, 200))}`,
+    );
     throw new ParseScreenshotsError(
       'The extraction service returned an unreadable response. Please try again.',
       'INVALID_RESPONSE',
+      err,
     );
   }
 
-  const parsed = validateResponse(payload);
-
-  if (__DEV__) {
-    console.log(
-      '[extract] success |',
-      parsed.messages.length, 'messages |',
-      'confidence:', parsed.confidence,
-      parsed.notes?.length ? '| notes: ' + parsed.notes.join('; ') : '',
+  let parsed: ParsedConversation;
+  try {
+    parsed = validateResponse(payload);
+  } catch (err) {
+    // Re-throw known errors; wrap anything unexpected so callers only ever
+    // see ParseScreenshotsError (prevents generic TypeErrors from bubbling
+    // into the UI and looking like a crash).
+    if (err instanceof ParseScreenshotsError) throw err;
+    console.warn('[parseScreenshots] validateResponse threw unexpectedly:', err);
+    throw new ParseScreenshotsError(
+      'The extraction service returned an unexpected result. Please try again.',
+      'INVALID_RESPONSE',
+      err,
     );
   }
+
+  console.log(
+    `[parseScreenshots] success — messages=${parsed.messages.length} ` +
+    `confidence=${parsed.confidence}` +
+    (parsed.notes?.length ? ` notes=${parsed.notes.join('; ')}` : ''),
+  );
 
   return parsed;
 }

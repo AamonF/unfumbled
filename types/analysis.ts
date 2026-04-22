@@ -664,3 +664,81 @@ export function normalizeAnalysisResponse(input: unknown): Record<string, unknow
     suggested_replies,
   };
 }
+
+/**
+ * Last-mile safety net that guarantees a fully-populated `AnalysisResult`
+ * regardless of what the caller passes in. Use this at every boundary where
+ * an `AnalysisResult` is about to reach UI code that assumes all fields exist
+ * (e.g. `result.suggested_replies.map(...)`, `result.avoid_reply.toUpperCase()`).
+ *
+ * NEVER throws. If the input is garbage, returns a neutral placeholder result
+ * the UI can render safely.
+ */
+export function ensureSafeAnalysisResult(input: unknown): AnalysisResult {
+  const normalized = normalizeAnalysisResponse(input);
+  // normalizeAnalysisResponse already fills every required field with a safe
+  // default — we just cast through unknown to satisfy TS, since the shape is
+  // guaranteed by construction above. The extra guards below are belt-and-
+  // suspenders in case a future refactor weakens those guarantees.
+  const r = normalized as unknown as AnalysisResult;
+
+  const safeSubscores: Subscores = {
+    reciprocity: typeof r.subscores?.reciprocity === 'number' ? r.subscores.reciprocity : DEFAULT_SUBSCORES.reciprocity,
+    enthusiasm:  typeof r.subscores?.enthusiasm  === 'number' ? r.subscores.enthusiasm  : DEFAULT_SUBSCORES.enthusiasm,
+    warmth:      typeof r.subscores?.warmth      === 'number' ? r.subscores.warmth      : DEFAULT_SUBSCORES.warmth,
+    chemistry:   typeof r.subscores?.chemistry   === 'number' ? r.subscores.chemistry   : DEFAULT_SUBSCORES.chemistry,
+    momentum:    typeof r.subscores?.momentum    === 'number' ? r.subscores.momentum    : DEFAULT_SUBSCORES.momentum,
+    balance:     typeof r.subscores?.balance     === 'number' ? r.subscores.balance     : DEFAULT_SUBSCORES.balance,
+    awkwardness: typeof r.subscores?.awkwardness === 'number' ? r.subscores.awkwardness : DEFAULT_SUBSCORES.awkwardness,
+    ghostRisk:   typeof r.subscores?.ghostRisk   === 'number' ? r.subscores.ghostRisk   : DEFAULT_SUBSCORES.ghostRisk,
+  };
+
+  const safeReplies = Array.isArray(r.suggested_replies) && r.suggested_replies.length > 0
+    ? r.suggested_replies
+        .filter((x): x is SuggestedReply =>
+          x != null &&
+          typeof x === 'object' &&
+          typeof (x as SuggestedReply).tone === 'string' &&
+          typeof (x as SuggestedReply).text === 'string',
+        )
+        .slice(0, SUGGESTED_REPLY_COUNT)
+    : [];
+  while (safeReplies.length < SUGGESTED_REPLY_COUNT) {
+    safeReplies.push({ tone: 'Chill', text: "I'll circle back when I have more info." });
+  }
+
+  const ghostRiskSafe: GhostRisk =
+    r.ghost_risk === 'Low' || r.ghost_risk === 'Medium' || r.ghost_risk === 'High'
+      ? r.ghost_risk
+      : 'Medium';
+
+  const powerBalanceSafe: PowerBalance =
+    r.power_balance === 'User Chasing' ||
+    r.power_balance === 'Other Person Chasing' ||
+    r.power_balance === 'Even'
+      ? r.power_balance
+      : 'Even';
+
+  const confidenceSafe: Confidence =
+    r.confidence === 'low' || r.confidence === 'medium' || r.confidence === 'high'
+      ? r.confidence
+      : 'medium';
+
+  return {
+    interest_score:
+      typeof r.interest_score === 'number' && Number.isFinite(r.interest_score)
+        ? Math.round(Math.min(100, Math.max(0, r.interest_score)))
+        : 0,
+    subscores: safeSubscores,
+    positives: Array.isArray(r.positives) ? r.positives.filter((p): p is string => typeof p === 'string') : [],
+    negatives: Array.isArray(r.negatives) ? r.negatives.filter((n): n is string => typeof n === 'string') : [],
+    confidence: confidenceSafe,
+    ghost_risk: ghostRiskSafe,
+    power_balance: powerBalanceSafe,
+    vibe_summary: typeof r.vibe_summary === 'string' ? r.vibe_summary : '',
+    mistake_detected: typeof r.mistake_detected === 'string' ? r.mistake_detected : '',
+    best_next_move: typeof r.best_next_move === 'string' ? r.best_next_move : '',
+    avoid_reply: typeof r.avoid_reply === 'string' ? r.avoid_reply : '',
+    suggested_replies: safeReplies,
+  };
+}

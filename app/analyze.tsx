@@ -351,6 +351,8 @@ export default function AnalyzeScreen() {
 
   // ── Parse screenshots ───────────────────────────────────────────────────────
   async function handleParseScreenshots() {
+    console.log(`[analyze] parse tapped — screenshots=${screenshots.length}`);
+
     if (screenshots.length === 0) {
       setParseError('Please select at least one screenshot first.');
       return;
@@ -366,11 +368,15 @@ export default function AnalyzeScreen() {
     setIsParsing(true);
 
     try {
+      console.log('[analyze] parsing started');
       const result = await parseScreenshots(screenshots, controller.signal);
       if (controller.signal.aborted) return;
+      console.log(`[analyze] parsing succeeded — messages=${result.messages.length}`);
       setParsedConversation(result);
     } catch (err) {
       if ((err as Error | undefined)?.name === 'AbortError') return;
+
+      console.warn('[analyze] parsing failed:', err);
 
       const msg =
         err instanceof ParseScreenshotsError
@@ -390,6 +396,11 @@ export default function AnalyzeScreen() {
 
   // ── Analyze (shared) ────────────────────────────────────────────────────────
   async function handleAnalyze() {
+    console.log(
+      `[analyze] analyze tapped — mode=${inputMode} isLoading=${isLoading} ` +
+      `isParsing=${isParsing} hasQuota=${hasQuota}`,
+    );
+
     // Belt-and-suspenders: button is already disabled during both, but guard
     // here in case the error-card "Try Again" button fires unexpectedly.
     // isAnalyzingRef adds an extra layer against rapid double-taps that can
@@ -492,6 +503,7 @@ export default function AnalyzeScreen() {
     void trackEvent('analysis_started', { mode: inputMode });
 
     try {
+      console.log('[analyze] analysis started');
       const { result, remaining: apiRemaining } = await analyzeConversation(
         {
           conversationText,
@@ -503,14 +515,27 @@ export default function AnalyzeScreen() {
 
       if (controller.signal.aborted) return;
 
+      // Belt-and-suspenders validation before we navigate.
+      // `analyzeConversation` already runs the result through
+      // `ensureSafeAnalysisResult`, but we double-check here so a broken /
+      // mocked / tampered service can never push malformed data into the
+      // results screen and trigger a render-time crash.
+      if (!result || typeof result !== 'object' || typeof result.interest_score !== 'number') {
+        console.warn('[analyze] aborting nav — result failed shape check', result);
+        throw new Error('Analysis returned an unexpected shape.');
+      }
+
+      console.log(
+        `[analyze] analysis succeeded — score=${result.interest_score} ` +
+        `ghost=${result.ghost_risk} remaining=${apiRemaining}`,
+      );
+
       const id = createAnalysisId();
       analysisStore.set(id, result, conversationText);
 
       void trackEvent('analysis_completed', { score: result.interest_score });
 
-      if (__DEV__) console.log('[analyze] API succeeded — calling recordAnalysis');
       await recordAnalysis(apiRemaining);
-      if (__DEV__) console.log('[analyze] recordAnalysis complete — navigating to results');
 
       // Reset state synchronously (no animation) before navigation.
       // Using withTiming here conflicts with the screen-transition animation
@@ -518,7 +543,9 @@ export default function AnalyzeScreen() {
       contentOpacity.value = 1;
       setIsLoading(false);
 
+      console.log(`[navigation] pushing /results/${id}`);
       router.push(`/results/${id}`);
+      console.log('[navigation] push dispatched');
     } catch (err) {
       if ((err as Error | undefined)?.name === 'AbortError') {
         contentOpacity.value = withTiming(1, { duration: 200 });
@@ -529,7 +556,7 @@ export default function AnalyzeScreen() {
       contentOpacity.value = withTiming(1, { duration: 200 });
       setIsLoading(false);
 
-      if (__DEV__) console.warn('[analyze] API failed — counter NOT decremented');
+      console.warn('[analyze] API failed — counter NOT decremented', err);
 
       // Server confirmed quota is exhausted (HTTP 429 QUOTA_EXCEEDED).
       // Refresh usage from server to reconcile local state, then show the

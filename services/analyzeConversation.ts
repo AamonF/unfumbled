@@ -17,6 +17,7 @@
 import {
   AnalysisResultSchema,
   DEFAULT_SUBSCORES,
+  ensureSafeAnalysisResult,
   normalizeAnalysisResponse,
   type AnalysisResult,
 } from '@/types';
@@ -103,10 +104,14 @@ function resolveApiUrl(): string {
   const url = typeof raw === 'string' ? raw.trim() : '';
 
   if (!url) {
+    // Throws a CONTROLLED error (caught by caller, surfaced as error card).
+    // This is NOT a hard crash — the app keeps running and the UI renders an
+    // actionable message. In production this typically means the EAS build
+    // profile was missing its env vars.
+    console.warn('[analyze] MISSING_API_URL — EXPO_PUBLIC_API_URL is not set');
     throw new AnalyzeConversationError(
-      'Backend URL is not configured. Set EXPO_PUBLIC_API_URL in your ' +
-        '.env.local (see .env.example) and restart the Expo dev server ' +
-        'with `npm start -- --clear`.',
+      'Analysis is temporarily unavailable (backend not configured). ' +
+        'Please try again later or contact support.',
       'MISSING_API_URL',
     );
   }
@@ -500,9 +505,13 @@ export async function analyzeConversation(
   const url = `${apiUrl}${ANALYZE_PATH}`;
   const { signal: callerSignal, timeoutMs = DEFAULT_TIMEOUT_MS, useMockOnFailure } = options;
 
-  if (__DEV__) {
-    console.log('[analyze] url:', url, '| input length:', conversationText.length);
-  }
+  // Production-safe log so TestFlight builds have breadcrumbs when a user
+  // reports "app crashed on analyze". Previously these were __DEV__-only and
+  // invisible in device logs from TestFlight crashes.
+  console.log(
+    `[analyze] request start — url=${url} input.len=${conversationText.length} ` +
+    `brutal=${Boolean(request.brutalMode)} hasSettings=${Boolean(request.settings)}`,
+  );
 
   // Attach the Supabase JWT when a session is active. The Edge Function uses
   // this to verify the user's identity and enforce server-side quota. When
@@ -568,11 +577,16 @@ export async function analyzeConversation(
 
   // Read the body once as text so we can safely inspect it on both ok and
   // error paths. Network failures that prevent reading at all fall back to ''.
+  // NOTE: we deliberately use response.text() + manual JSON.parse (via
+  // extractJSON below). Calling response.json() directly would throw on
+  // non-JSON bodies (HTML error pages from a CDN, plain-text 5xx, …) and
+  // bypass our fallback path.
   const rawText = await response.text().catch(() => '');
 
-  if (__DEV__) {
-    console.log('[analyze] HTTP status:', response.status);
-  }
+  console.log(
+    `[analyze] response — status=${response.status} bytes=${rawText.length} ` +
+    `preview=${JSON.stringify(rawText.slice(0, 180))}`,
+  );
 
   if (!response.ok) {
     // Extract the backend's `{ error: { code, message } }` envelope when
@@ -609,10 +623,11 @@ export async function analyzeConversation(
     // The response body contained no parseable JSON — return a safe fallback
     // so the UI can still render rather than crash. Likely cause: backend
     // temporarily returning an HTML error page or a plain-text message.
-    if (__DEV__) {
-      console.warn('[analyze] extractJSON returned null — using fallback result');
-    }
-    return { result: buildFallbackResult(), remaining: null };
+    console.warn(
+      `[analyze] extractJSON returned null — using fallback result. ` +
+      `raw preview: ${JSON.stringify(rawText.slice(0, 200))}`,
+    );
+    return { result: ensureSafeAnalysisResult(buildFallbackResult()), remaining: null };
   }
 
   // ── 1b. Unwrap the { data, meta } envelope ─────────────────────────────────
@@ -688,7 +703,10 @@ export async function analyzeConversation(
     // Returning a fallback instead of throwing means the UI can still render a
     // result screen. Any score or summary that survived normalization is preserved;
     // everything else gets a neutral placeholder the user can act on.
-    return { result: buildFallbackResult(normalized), remaining: serverRemaining };
+    return {
+      result: ensureSafeAnalysisResult(buildFallbackResult(normalized)),
+      remaining: serverRemaining,
+    };
   }
 
   // ── 5. Derive the final score from subscores, then spread it ────────────────
@@ -725,5 +743,17 @@ export async function analyzeConversation(
     );
   }
 
-  return { result: { ...parsed.data, interest_score: finalScore }, remaining: serverRemaining };
+  // Final safety net — even though Zod validated the shape, we run through
+  // `ensureSafeAnalysisResult` so the UI can safely assume every field exists.
+  // Cheap, idempotent, and eliminates an entire class of "undefined field"
+  // crashes at the navigation / render boundary.
+  const safeResult = ensureSafeAnalysisResult({ ...parsed.data, interest_score: finalScore });
+
+  console.log(
+    `[analyze] success — score=${safeResult.interest_score} ` +
+    `ghost=${safeResult.ghost_risk} power=${safeResult.power_balance} ` +
+    `replies=${safeResult.suggested_replies.length} remaining=${serverRemaining}`,
+  );
+
+  return { result: safeResult, remaining: serverRemaining };
 }

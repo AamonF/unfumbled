@@ -48,6 +48,7 @@ export {
   // Normalization
   DEFAULT_SUBSCORES,
   normalizeAnalysisResponse,
+  ensureSafeAnalysisResult,
 } from './analysis';
 
 // ─── User ─────────────────────────────────────────────────────────────────────

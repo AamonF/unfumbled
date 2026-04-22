@@ -21,6 +21,7 @@ import {
   FontSize,
 } from '@/constants';
 import type { AnalysisResult, GhostRisk, PowerBalance } from '@/types';
+import { ensureSafeAnalysisResult } from '@/types';
 import { analysisStore } from '@/lib/analysisStore';
 import { savedAnalysisStore } from '@/lib/savedAnalysisStore';
 import { generateReply, type GeneratedReplies } from '@/lib/api';
@@ -651,23 +652,92 @@ export default function ResultsScreen() {
   const [replies, setReplies] = useState<GeneratedReplies | null>(null);
   const [generateReplyError, setGenerateReplyError] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
+  /**
+   * True when the result was rehydrated from an older saved entry that
+   * didn't persist the full analysis payload. We still render the shell of
+   * the screen but swap in a "Results unavailable" banner instead of fake
+   * numbers. See `savedAnalysisStore.normalizeEntry`.
+   */
+  const [isLegacyIncomplete, setIsLegacyIncomplete] = useState(false);
 
   useEffect(() => {
-    if (!id) return;
+    console.log(`[results] mount — id=${String(id)}`);
+
+    // Defensive: route param may be missing, malformed, or arrive as an
+    // array depending on expo-router version. Anything other than a usable
+    // string id should render the "not found" state rather than crash.
+    if (typeof id !== 'string' || !id) {
+      console.warn('[results] invalid/missing id param, showing notFound');
+      setNotFound(true);
+      return;
+    }
+
     if (id === 'demo') {
-      setResult(DEMO_RESULT);
+      setResult(ensureSafeAnalysisResult(DEMO_RESULT));
       setCreatedAt(new Date().toISOString());
       setConversationText('Demo conversation — real replies unavailable in demo mode.');
       return;
     }
-    const entry = analysisStore.get(id);
-    if (entry) {
-      setResult(entry.result);
-      setCreatedAt(entry.createdAt);
-      setConversationText(entry.conversationText);
-    } else {
-      setNotFound(true);
-    }
+
+    let alive = true;
+
+    (async () => {
+      // 1) Fast path: in-memory cache (always populated for freshly-run
+      //    analyses within the same JS runtime).
+      try {
+        const entry = analysisStore.get(id);
+        if (entry) {
+          const safe = ensureSafeAnalysisResult(entry.result);
+          console.log(
+            `[results] opened from memory store — id=${id} ` +
+              `score=${safe.interest_score} replies=${safe.suggested_replies.length}`,
+          );
+          if (!alive) return;
+          setResult(safe);
+          setCreatedAt(entry.createdAt);
+          setConversationText(entry.conversationText ?? '');
+          setIsLegacyIncomplete(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('[results] in-memory hydration error:', err);
+        // fall through to persistent lookup
+      }
+
+      // 2) Cold-start path: pull from the persistent saved store. This is
+      //    the critical fix for "saved chats reopen blank after app
+      //    restart" — `analysisStore` is in-memory only, so a relaunch
+      //    always misses it.
+      try {
+        const saved = await savedAnalysisStore.getById(id);
+        if (!alive) return;
+        if (saved) {
+          console.log(
+            `[results] opened from persistent store — id=${id} ` +
+              `incomplete=${!!saved.incomplete} ` +
+              `score=${saved.result.interest_score} ` +
+              `replies=${saved.result.suggested_replies.length} ` +
+              `savedAt=${saved.savedAt}`,
+          );
+          setResult(saved.result);
+          setCreatedAt(saved.savedAt);
+          setConversationText(saved.conversationText ?? '');
+          setIsLegacyIncomplete(!!saved.incomplete);
+          return;
+        }
+        console.warn(
+          `[results] no entry in analysisStore OR savedAnalysisStore for id=${id}`,
+        );
+        setNotFound(true);
+      } catch (err) {
+        console.warn('[results] persistent hydration error:', err);
+        if (alive) setNotFound(true);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [id]);
 
   // Hydrate the saved-toggle state from the persistent store.
@@ -805,6 +875,34 @@ export default function ResultsScreen() {
           <Text style={s.pageTitle}>Your Analysis</Text>
           <Text style={s.pageSubtitle}>Here's what the conversation is really saying.</Text>
         </Animated.View>
+
+        {/* ── Legacy fallback banner ──────────────────────────────────────── */}
+        {/* Shown for older saved chats that were persisted before the full
+            analysis result was included in the payload. We still render the
+            screen shell so deletion/navigation works, but we make it obvious
+            the numbers below aren't meaningful. */}
+        {isLegacyIncomplete && (
+          <Animated.View entering={FadeInDown.duration(400).delay(50)}>
+            <View style={[s.card, s.cardDanger]}>
+              <View style={s.cardHeader}>
+                <SectionLabel text="RESULTS UNAVAILABLE" color={Colors.destructive} />
+                <Ionicons name="information-circle-outline" size={16} color={Colors.destructive} />
+              </View>
+              <Text style={[s.cardBody, { color: Colors.textSecondary }]}>
+                Results unavailable for this older saved chat. It was saved in a
+                previous version of the app that didn't keep the full analysis.
+                Re-analyze the conversation to see updated insights.
+              </Text>
+              <AppButton
+                title="Analyze a new conversation"
+                variant="primary"
+                size="md"
+                fullWidth
+                onPress={() => router.push('/analyze')}
+              />
+            </View>
+          </Animated.View>
+        )}
 
         {/* ══════════════════════════════════════════════════════════════════
             FREE TIER — Score hero + key signals
