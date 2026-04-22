@@ -24,7 +24,7 @@ import type { AnalysisResult, GhostRisk, PowerBalance } from '@/types';
 import { ensureSafeAnalysisResult } from '@/types';
 import { analysisStore } from '@/lib/analysisStore';
 import { savedAnalysisStore } from '@/lib/savedAnalysisStore';
-import { generateReply, type GeneratedReplies } from '@/lib/api';
+import { generateReply, getGenerateReplyErrorMessage, type GeneratedReplies } from '@/lib/api';
 import { trackEvent } from '@/lib/analytics';
 import { useEntitlement } from '@/providers/EntitlementProvider';
 
@@ -809,19 +809,35 @@ export default function ResultsScreen() {
   }
 
   async function handleGenerateReply() {
-    if (!conversationText) return;
+    console.log(
+      `[generateReply] tapped — id=${String(id)} convLen=${conversationText?.length ?? 0} ` +
+        `legacy=${isLegacyIncomplete}`,
+    );
+
+    if (!conversationText || !conversationText.trim()) {
+      // Older saved chats and the demo result both hit this branch. Fail
+      // loudly with a clear message instead of silently doing nothing.
+      setGenerateReplyError(
+        isLegacyIncomplete || id === 'demo'
+          ? "Reply generation isn't available for this conversation. Run a fresh analysis to enable it."
+          : 'No conversation text available. Please re-analyze the conversation.',
+      );
+      return;
+    }
+
     const lines = conversationText.split('\n').map((l) => l.trim()).filter(Boolean);
     const lastMessage = lines[lines.length - 1] ?? conversationText.slice(-200);
     try {
       setLoadingReplies(true);
       setGenerateReplyError(null);
       setReplies(null);
-      const result = await generateReply(conversationText, lastMessage);
-      setReplies(result);
+      const replyResult = await generateReply(conversationText, lastMessage);
+      setReplies(replyResult);
       void trackEvent('reply_generated');
     } catch (err) {
-      setGenerateReplyError('Failed to generate replies. Please try again.');
-      console.error('[GenerateReply]', err);
+      const userMessage = getGenerateReplyErrorMessage(err);
+      setGenerateReplyError(userMessage);
+      console.error('[generateReply] failed —', userMessage, err);
     } finally {
       setLoadingReplies(false);
     }

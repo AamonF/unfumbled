@@ -18,7 +18,7 @@
       "icon": "./assets/icon.png",
       "supportsTablet": false,
       "bundleIdentifier": "com.cenalabs.unfumbled",
-      "buildNumber": "12",
+      "buildNumber": "15",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Unfumbled needs access to your photo library so you can upload screenshots of a conversation and get it analyzed.",
         "ITSAppUsesNonExemptEncryption": false

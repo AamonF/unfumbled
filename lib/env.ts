@@ -8,30 +8,37 @@
  *
  * All accessors below are LAZY: they read `process.env` on first call and
  * return an empty string (with a warning log) when the value is missing,
- * instead of throwing. Callers (e.g. services/analyzeConversation.ts) decide
- * how to surface the missing value at runtime — giving the UI a chance to
- * render a controlled error state instead of crashing.
+ * instead of throwing. Callers decide how to surface the missing value at
+ * runtime — giving the UI a chance to render a controlled error state
+ * instead of crashing.
  *
- * Only `EXPO_PUBLIC_*` variables are inlined into the client bundle by
- * `babel-preset-expo`. Secrets (OpenAI keys, service-role keys, etc.) MUST
- * NEVER be exposed through an `EXPO_PUBLIC_*` name — they belong exclusively
- * on the backend.
+ * ── RELEASE-BUILD INLINING: STATIC ACCESS ONLY ─────────────────────────────
+ * `babel-preset-expo` inlines `process.env.EXPO_PUBLIC_*` references into
+ * the JS bundle at build time, BUT ONLY when they appear as STATIC member
+ * expressions (literally `process.env.EXPO_PUBLIC_FOO`). Computed access
+ * like `process.env[name]` is opaque to the Babel transform — nothing gets
+ * inlined, and at runtime in a release bundle `process.env` is effectively
+ * empty, so the read resolves to `undefined`.
  *
- * Usage:
- *   import { getApiUrl } from '@/lib/env';
- *   const url = getApiUrl();
- *   if (!url) { ... handle gracefully ... }
+ * That was the exact TestFlight failure mode for `generateReply`:
+ *   • `services/analyzeConversation.ts` used `process.env.EXPO_PUBLIC_API_URL`
+ *     (static) → inlined → Analyze worked.
+ *   • This module previously used `process.env[name]` (dynamic) → NOT
+ *     inlined → `getApiUrl()` returned '' → Generate Reply showed
+ *     "missing backend URL" in production while working in dev.
+ *
+ * Every EXPO_PUBLIC_* read below MUST stay as a direct static member
+ * expression. Do not refactor it into a loop / lookup table / bracket
+ * access — doing so will silently break release builds.
  */
 
-/**
- * Read an `EXPO_PUBLIC_*` env var and return the trimmed value, or '' if
- * missing. Never throws. Logs a clear warning once per missing var so the
- * problem is visible in production logs without crashing the app.
- */
 const loggedMisses = new Set<string>();
 
-function readEnv(name: `EXPO_PUBLIC_${string}`): string {
-  const raw = process.env[name];
+/**
+ * Normalize a raw env string: trim whitespace and log once per missing var
+ * so production issues are visible without crashing.
+ */
+function normalize(name: string, raw: string | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : '';
   if (!value && !loggedMisses.has(name)) {
     loggedMisses.add(name);
@@ -44,19 +51,35 @@ function readEnv(name: `EXPO_PUBLIC_${string}`): string {
 }
 
 /**
- * Normalize a URL by stripping a trailing slash so callers can always
- * write `${getApiUrl()}/some/path` without producing double slashes.
+ * Strip trailing slashes so callers can always write `${getApiUrl()}/path`
+ * without producing double slashes.
  */
-function normalizeUrl(url: string): string {
+function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
 /**
  * Returns the resolved API base URL, or empty string if unconfigured.
- * Lazy — safe to call from anywhere at any time; never throws.
+ *
+ * IMPORTANT: This uses a STATIC reference to `process.env.EXPO_PUBLIC_API_URL`
+ * so the Expo Babel plugin inlines the value into the release bundle. This
+ * is the same access pattern used by `services/analyzeConversation.ts` —
+ * keep them aligned so Analyze and Generate Reply always resolve the same
+ * URL in production.
  */
 export function getApiUrl(): string {
-  return normalizeUrl(readEnv('EXPO_PUBLIC_API_URL'));
+  const raw = process.env.EXPO_PUBLIC_API_URL;
+  return stripTrailingSlash(normalize('EXPO_PUBLIC_API_URL', raw));
+}
+
+/**
+ * Canonical helper: returns the API base URL, or `null` if unconfigured.
+ * Prefer this in new code so callers make an explicit decision about how
+ * to handle the missing case.
+ */
+export function getApiBaseUrl(): string | null {
+  const url = getApiUrl();
+  return url || null;
 }
 
 /**
