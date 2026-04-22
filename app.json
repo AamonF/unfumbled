@@ -1,10 +1,11 @@
 {
   "expo": {
+    "owner": "cenalabs",
     "name": "Unfumbled",
     "slug": "unfumbled",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icon.png",
     "scheme": "unfumbled",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -14,15 +15,17 @@
       "backgroundColor": "#0F0F0F"
     },
     "ios": {
+      "icon": "./assets/icon.png",
       "supportsTablet": false,
       "bundleIdentifier": "com.cenalabs.unfumbled",
-      "buildNumber": "4",
+      "buildNumber": "8",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Unfumbled needs access to your photo library so you can upload screenshots of a conversation and get it analyzed.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "icon": "./assets/icon.png",
       "package": "com.unfumbled.app",
       "versionCode": 1,
       "adaptiveIcon": {
@@ -38,7 +41,8 @@
         "expo-build-properties",
         {
           "ios": {
-            "deploymentTarget": "15.1"
+            "deploymentTarget": "15.1",
+            "buildReactNativeFromSource": true
           }
         }
       ]
@@ -49,14 +53,14 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "1b8ef29d-d16d-4ccd-849c-fa79f003065d"
+        "projectId": "a30fcc3d-bf8a-411a-a4a7-08a813f741cb"
       }
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/1b8ef29d-d16d-4ccd-849c-fa79f003065d"
+      "url": "https://u.expo.dev/a30fcc3d-bf8a-411a-a4a7-08a813f741cb"
     }
   }
 }

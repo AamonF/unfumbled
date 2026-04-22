@@ -244,7 +244,7 @@ function SavedCard({
 }) {
   const score = item.result.interest_score;
   const scoreColor = getScoreColor(score);
-  const ghost = GHOST_CHIP[item.result.ghost_risk];
+  const ghost = GHOST_CHIP[item.result.ghost_risk] ?? GHOST_CHIP.Medium;
   const dateStr = formatSavedDate(item.savedAt);
   const preview = makePreview(item.conversationText);
   const summary = item.result.vibe_summary;

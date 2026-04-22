@@ -408,6 +408,7 @@ export default function AnalyzeScreen() {
 
     if (isScreenshotMode) {
       if (!parsedConversation || parsedConversation.messages.length === 0) {
+        isAnalyzingRef.current = false;
         setError({
           message: 'Extract messages from your screenshots first, then tap Analyze.',
           code: 'EMPTY_CONVERSATION',
@@ -459,6 +460,7 @@ export default function AnalyzeScreen() {
     }
 
     if (conversationText.trim().length < MIN_CHARS) {
+      isAnalyzingRef.current = false;
       setError({
         message: `Need at least ${MIN_CHARS} characters to read the dynamic.`,
         code: 'EMPTY_CONVERSATION',

@@ -698,7 +698,7 @@ export default function ResultsScreen() {
   // ── Derived display values ─────────────────────────────────────────────────
   const scoreCfg  = getScoreConfig(result.interest_score);
   const ghostCfg  = GHOST_CFG[result.ghost_risk] ?? GHOST_CFG.Medium;
-  const powerCfg  = POWER_CFG[result.power_balance];
+  const powerCfg  = POWER_CFG[result.power_balance] ?? POWER_CFG['Even'];
 
   const analysisDate = createdAt
     ? new Date(createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -825,14 +825,14 @@ export default function ResultsScreen() {
           <View style={[s.metricBox, { borderColor: ghostCfg.border, backgroundColor: ghostCfg.bg }]}>
             <Text style={s.metricBoxLabel}>GHOST RISK</Text>
             <GhostDots count={ghostCfg.dots} color={ghostCfg.color} />
-            <Text style={[s.metricBoxValue, { color: ghostCfg.color }]}>{result.ghost_risk.toUpperCase()}</Text>
+            <Text style={[s.metricBoxValue, { color: ghostCfg.color }]}>{(result.ghost_risk ?? 'Medium').toUpperCase()}</Text>
           </View>
           {/* Power Balance */}
           <View style={[s.metricBox, { borderColor: powerCfg.border, backgroundColor: powerCfg.bg }]}>
             <Text style={s.metricBoxLabel}>ENERGY</Text>
             <Ionicons name={powerCfg.icon as any} size={22} color={powerCfg.color} />
             <Text style={[s.metricBoxValue, { color: powerCfg.color, fontSize: FontSize.xs, lineHeight: 15, textAlign: 'center' }]}>
-              {result.power_balance.toUpperCase()}
+              {(result.power_balance ?? 'Even').toUpperCase()}
             </Text>
           </View>
         </Animated.View>
