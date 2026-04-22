@@ -512,7 +512,10 @@ export default function AnalyzeScreen() {
       await recordAnalysis(apiRemaining);
       if (__DEV__) console.log('[analyze] recordAnalysis complete — navigating to results');
 
-      contentOpacity.value = withTiming(1, { duration: 200 });
+      // Reset state synchronously (no animation) before navigation.
+      // Using withTiming here conflicts with the screen-transition animation
+      // in the New Architecture (Fabric) and can cause a hard crash on iOS.
+      contentOpacity.value = 1;
       setIsLoading(false);
 
       router.push(`/results/${id}`);
@@ -819,13 +822,14 @@ export default function AnalyzeScreen() {
                 {isParsing && (
                   <Animated.View entering={FadeIn.duration(300)} style={styles.parseLoading}>
                     <ActivityIndicator color={Colors.primaryLight} size="small" />
-                    <Animated.Text
+                    <Animated.View
                       key={parseMsgIdx}
                       entering={FadeIn.duration(200)}
-                      style={styles.parseLoadingMsg}
                     >
-                      {PARSE_LOADING_MSGS[parseMsgIdx]}
-                    </Animated.Text>
+                      <Text style={styles.parseLoadingMsg}>
+                        {PARSE_LOADING_MSGS[parseMsgIdx]}
+                      </Text>
+                    </Animated.View>
                   </Animated.View>
                 )}
 
@@ -920,13 +924,14 @@ export default function AnalyzeScreen() {
                   <ActivityIndicator style={styles.loadingSpinner} color={Colors.primaryLight} />
                 </View>
                 <Text style={styles.loadingTitle}>Analyzing…</Text>
-                <Animated.Text
+                <Animated.View
                   key={loadingMsgIdx}
                   entering={FadeIn.duration(220)}
-                  style={styles.loadingBody}
                 >
-                  {LOADING_MSGS[loadingMsgIdx]}
-                </Animated.Text>
+                  <Text style={styles.loadingBody}>
+                    {LOADING_MSGS[loadingMsgIdx]}
+                  </Text>
+                </Animated.View>
               </Animated.View>
             )}
 

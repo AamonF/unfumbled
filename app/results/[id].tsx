@@ -676,7 +676,7 @@ export default function ResultsScreen() {
     let alive = true;
     savedAnalysisStore.ready().then(() => {
       if (alive) setIsSaved(savedAnalysisStore.isSaved(id));
-    });
+    }).catch(() => {});
     return () => {
       alive = false;
     };
